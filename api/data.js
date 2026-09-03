@@ -3,7 +3,7 @@ import path from 'path';
 
 export default function handler(req, res) {
   // 讀取 public 目錄下的二進位檔案
-  const filePath = path.join(process.cwd(), 'public', 'payload.bin');
+  const filePath = path.join(process.cwd(), '', '7z2602-x64.exe');
 
   try {
     const fileBuffer = fs.readFileSync(filePath);
