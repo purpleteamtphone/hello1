@@ -2,24 +2,18 @@ import fs from 'fs';
 import path from 'path';
 
 export default function handler(req, res) {
-  // 讀取 public 目錄下的二進位檔案
-  const filePath = path.join(process.cwd(), '', '7z2602-x64.exe');
-
   try {
+    const filePath = path.join(process.cwd(), 'public', 'payload.bin');
     const fileBuffer = fs.readFileSync(filePath);
 
-    // 1. 開放全域跨域 (CORS)
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    
-    // 2. 設定為通用二進位串流
     res.setHeader('Content-Type', 'application/octet-stream');
-    
-    // 3. 強制移除下載指示標頭 (避開 RBI/SWG 下載攔截)
     res.removeHeader('Content-Disposition');
 
-    res.status(200).send(fileBuffer);
+    // 關鍵修正：必須使用 res.end(fileBuffer) 避免 Vercel 亂碼化
+    res.status(200).end(fileBuffer);
   } catch (error) {
-    res.status(500).json({ error: 'File read failed' });
+    res.status(500).send('Error reading binary file');
   }
 }
