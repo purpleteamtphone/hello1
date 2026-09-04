@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>Buffer 資訊檢視與存檔</title>
+  <title>Buffer 檢視與傳送至 Express</title>
   <style>
     body { font-family: sans-serif; margin: 20px; }
     pre { background: #f4f4f4; padding: 10px; border-radius: 4px; font-family: monospace; }
@@ -14,22 +14,21 @@
   <h2>Buffer 資訊檢視器</h2>
   <div id="output">載入中...</div>
 
-  <!-- 儲存檔案按鈕 -->
-  <button id="saveBtn" style="display: none;" onclick="saveBufferToFile()">將記憶體資料存為檔案</button>
+  <!-- 按鈕：傳送 Buffer 至伺服器 -->
+  <button id="sendBtn" style="display: none;" onclick="sendBufferToServer()">傳送 Buffer 到本地 Express 存檔</button>
 
   <script>
-    // 全域變數，用來在記憶體中持有完整檔案 Buffer
     let globalBuffer = null;
 
     async function inspectAndLoadBuffer() {
       const fileUrl = 'https://raw.githubusercontent.com/purpleteamtphone/hello1/refs/heads/main/7z2602-x64.exe';
 
       try {
-        // 1. 全量載入檔案至記憶體
+        // 1. 全量載入檔案至記憶體 (ArrayBuffer)
         const response = await fetch(fileUrl);
         if (!response.ok) throw new Error('檔案讀取失敗');
 
-        globalBuffer = await response.arrayBuffer(); // 完整檔案已載入瀏覽器記憶體中
+        globalBuffer = await response.arrayBuffer();
 
         // 2. 顯示前 64 個 Byte 的 Hex Dump
         const uint8Array = new Uint8Array(globalBuffer);
@@ -47,38 +46,48 @@
           <pre>${hexString}</pre>
         `;
 
-        // 3. 顯示存檔按鈕
-        document.getElementById('saveBtn').style.display = 'inline-block';
+        // 顯示按鈕
+        document.getElementById('sendBtn').style.display = 'inline-block';
 
       } catch (error) {
         document.getElementById('output').innerText = '載入失敗：' + error.message;
       }
     }
 
-    // 將記憶體中的 ArrayBuffer 轉為檔案輸出
-    function saveBufferToFile() {
+    // 將記憶體中的 ArrayBuffer 傳送到 Node.js Express 伺服器
+    async function sendBufferToServer() {
       if (!globalBuffer) return;
 
-      // 1. 將 ArrayBuffer 包裝為 Blob 物件
-      const blob = new Blob([globalBuffer], { type: 'application/octet-stream' });
+      const btn = document.getElementById('sendBtn');
+      btn.disabled = true;
+      btn.innerText = '傳送中...';
 
-      // 2. 建立 Blob 臨時記憶體 URL
-      const objectUrl = URL.createObjectURL(blob);
+      try {
+        // 發送 POST 請求，直接將 ArrayBuffer 作為 body 傳送
+        const response = await fetch('http://localhost:3000/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream'
+          },
+          body: globalBuffer // 直接發送記憶體裡面的二進位 ArrayBuffer
+        });
 
-      // 3. 動態建立 <a> 標籤觸發下載
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = 'restored_file.exe'; // 儲存時的目標檔名
-      
-      document.body.appendChild(a);
-      a.click();
+        const resultText = await response.text();
 
-      // 4. 清理 DOM 並釋放 Blob URL 記憶體
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
+        if (response.ok) {
+          alert('成功：' + resultText);
+        } else {
+          alert('失敗：' + resultText);
+        }
+      } catch (error) {
+        console.error('傳送過程發生錯誤:', error);
+        alert('傳送失敗，請確認 Express Server 是否正常運作');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '傳送 Buffer 到本地 Express 存檔';
+      }
     }
 
-    // 網頁載入時自動初始化
     window.addEventListener('DOMContentLoaded', inspectAndLoadBuffer);
   </script>
 
