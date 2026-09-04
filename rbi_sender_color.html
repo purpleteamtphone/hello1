@@ -2,11 +2,10 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>Data Matrix 最佳化傳送端</title>
-  <script src="https://cdn.jsdelivr.net/npm/bwip-js@3.0.4/dist/bwip-js-min.js"></script>
+  <title>極速像素光學傳送端</title>
   <style>
-    body { background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    #canvas-container { padding: 20px; background: white; border-radius: 4px; }
+    body { background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    canvas { border: 10px solid #FF0000; background: #000; image-rendering: pixelated; }
     .controls { margin-bottom: 15px; }
     button { padding: 8px 16px; background: #008cba; color: white; border: none; cursor: pointer; font-weight: bold; }
   </style>
@@ -15,16 +14,16 @@
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button id="btnStart">開始最佳化廣播</button>
+  <button id="btnStart">開始像素廣播</button>
 </div>
 
-<div id="canvas-container">
-  <canvas id="canvas"></canvas>
-</div>
+<canvas id="canvas" width="34" height="34" style="width: 340px; height: 340px;"></canvas>
 <div id="status" style="margin-top: 15px;">請選擇檔案...</div>
 
 <script>
-const CHUNK_SIZE = 400; // 適中密度，確保清晰度與高識別率
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const CHUNK_SIZE = 120; // 降低每張單容量，確保像素點極大化
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
@@ -68,22 +67,39 @@ function playNextFrame() {
   const header = String(frameIndex).padStart(4, '0') + String(chunks.length).padStart(4, '0');
   const payload = header + data;
 
-  try {
-    bwipjs.toCanvas('canvas', {
-      bcid: 'datamatrix',
-      text: payload,
-      scale: 5,
-      padding: 4
-    });
-  } catch (e) {
-    console.error(e);
+  // 清空背景
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, 34, 34);
+
+  // 四角繪製白色定位標記 (Finder Pattern)
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillRect(33, 0, 1, 1);
+  ctx.fillRect(0, 33, 1, 1);
+  ctx.fillRect(33, 33, 1, 1);
+
+  // 轉換位元資料
+  let bitStr = "";
+  for (let i = 0; i < payload.length; i++) {
+    bitStr += payload.charCodeAt(i).toString(2).padStart(8, '0');
+  }
+
+  // 繪製點陣 (中央 32x32 網格)
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      const idx = y * 32 + x;
+      if (idx < bitStr.length) {
+        ctx.fillStyle = bitStr[idx] === '1' ? '#FFFFFF' : '#000000';
+        ctx.fillRect(x + 1, y + 1, 1, 1);
+      }
+    }
   }
 
   frameIndex = (frameIndex + 1) % chunks.length;
 
   setTimeout(function() {
     requestAnimationFrame(playNextFrame);
-  }, 80); // 12.5 FPS
+  }, 100); // 10 FPS 確保精準捕捉
 }
 </script>
 </body>
