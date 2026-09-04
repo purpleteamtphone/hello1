@@ -3,7 +3,7 @@ import path from 'path';
 
 export default function handler(req, res) {
   try {
-    const filePath = path.join(process.cwd(), 'public', 'a.one');
+    const filePath = path.join(process.cwd(), 'public', 'NanaZip_6.5.1800.0.msixbundle');
     //const filePath = path.join(process.cwd(), 'public', '7z2602-x64');
     const fileBuffer = fs.readFileSync(filePath);
 
