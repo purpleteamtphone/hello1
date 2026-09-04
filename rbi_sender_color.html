@@ -2,11 +2,11 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>Data Matrix 高速傳送端</title>
+  <title>Data Matrix 最佳化傳送端</title>
   <script src="https://cdn.jsdelivr.net/npm/bwip-js@3.0.4/dist/bwip-js-min.js"></script>
   <style>
     body { background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    #canvas-container { padding: 10px; background: white; border-radius: 4px; }
+    #canvas-container { padding: 20px; background: white; border-radius: 4px; }
     .controls { margin-bottom: 15px; }
     button { padding: 8px 16px; background: #008cba; color: white; border: none; cursor: pointer; font-weight: bold; }
   </style>
@@ -15,7 +15,7 @@
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button id="btnStart">開始廣播 Data Matrix</button>
+  <button id="btnStart">開始最佳化廣播</button>
 </div>
 
 <div id="canvas-container">
@@ -24,7 +24,7 @@
 <div id="status" style="margin-top: 15px;">請選擇檔案...</div>
 
 <script>
-const CHUNK_SIZE = 1200; // Data Matrix 最佳高密度容量
+const CHUNK_SIZE = 400; // 適中密度，確保清晰度與高識別率
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
@@ -72,8 +72,8 @@ function playNextFrame() {
     bwipjs.toCanvas('canvas', {
       bcid: 'datamatrix',
       text: payload,
-      scale: 4,
-      padding: 2
+      scale: 5,
+      padding: 4
     });
   } catch (e) {
     console.error(e);
@@ -83,7 +83,7 @@ function playNextFrame() {
 
   setTimeout(function() {
     requestAnimationFrame(playNextFrame);
-  }, 70); // 約 14 FPS 傳輸
+  }, 80); // 12.5 FPS
 }
 </script>
 </body>
