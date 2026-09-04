@@ -1,20 +1,29 @@
+// 1. 安裝時立即跳過等待階段
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+// 2. 啟用時立即接管所有開啟中的 Client 頁面
+self.addEventListener('activate', (event) => {
+  event.waitUntil(clients.claim());
+});
+
 let storedBuffer = null;
 let mimeType = 'application/octet-stream';
 
-// 監聽來自頁面的 Message，接收轉移過來的 ArrayBuffer
+// 接收 Message
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SET_BUFFER') {
     storedBuffer = event.data.buffer;
     mimeType = event.data.mimeType || 'application/octet-stream';
     
-    // 通知頁面資料已就緒
     if (event.ports && event.ports[0]) {
       event.ports[0].postMessage({ status: 'READY' });
     }
   }
 });
 
-// 攔截頁面的虛擬路由 Request
+// 攔截 Fetch Request
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
@@ -24,8 +33,6 @@ self.addEventListener('fetch', (event) => {
       return;
     }
 
-    // 建立純淨的 application/octet-stream Response
-    // 完全不包含 Content-Disposition 標頭，防止 RBI 判定為下載行為
     const responseHeaders = new Headers({
       'Content-Type': mimeType,
       'Content-Length': storedBuffer.byteLength.toString(),
@@ -38,9 +45,7 @@ self.addEventListener('fetch', (event) => {
       headers: responseHeaders
     });
 
-    // 釋放暫存 (視業務需求保留或清除)
     storedBuffer = null;
-
     event.respondWith(response);
   }
 });
