@@ -2,10 +2,10 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>RBI 畫面訊號傳送端 (CSP Safe)</title>
+  <title>RBI 畫面訊號傳送端 (對齊增強版)</title>
   <style>
-    body { font-family: sans-serif; background: #1e1e1e; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    canvas { border: 4px solid #00ff00; background: black; image-rendering: pixelated; }
+    body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    canvas { border: 2px solid #555; background: black; image-rendering: pixelated; }
     .controls { margin-bottom: 15px; }
     button { padding: 8px 16px; background: #008cba; color: white; border: none; cursor: pointer; }
   </style>
@@ -17,7 +17,8 @@
   <button id="btnStart">開始廣播訊號</button>
 </div>
 
-<canvas id="canvas" width="256" height="256"></canvas>
+<!-- 畫布調整為 258x258 (包含 1px 紅色定位框) -->
+<canvas id="canvas" width="258" height="258"></canvas>
 <div id="status" style="margin-top: 10px;">請選擇檔案...</div>
 
 <script>
@@ -38,14 +39,11 @@ function startTransmission() {
   const reader = new FileReader();
 
   reader.onload = function(e) {
-    // 使用 ArrayBuffer 處理二進位，避免 Base64 字串引發 CSP 疑慮
     const arrayBuffer = e.target.result;
     const uint8Array = new Uint8Array(arrayBuffer);
     
-    // 將二進位轉換為 Base64 字串
     let binary = '';
-    const len = uint8Array.byteLength;
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < uint8Array.byteLength; i++) {
       binary += String.fromCharCode(uint8Array[i]);
     }
     const base64 = window.btoa(binary);
@@ -72,10 +70,17 @@ function playNextFrame() {
   const header = String(frameIndex).padStart(4, '0') + String(chunks.length).padStart(4, '0');
   const payload = header + data;
 
+  // 清空畫布
   ctx.fillStyle = "black";
-  ctx.fillRect(0, 0, 256, 256);
-  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 258, 258);
 
+  // 1. 繪製純紅色外框 (RGB: 255, 0, 0)，作為定位特徵
+  ctx.strokeStyle = "#FF0000";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, 258, 258);
+
+  // 2. 繪製黑白資料區塊 (偏移 1px)
+  ctx.fillStyle = "white";
   let binaryStr = "";
   for (let i = 0; i < payload.length; i++) {
     binaryStr += payload.charCodeAt(i).toString(2).padStart(8, '0');
@@ -83,18 +88,17 @@ function playNextFrame() {
 
   for (let i = 0; i < binaryStr.length; i++) {
     if (binaryStr[i] === '1') {
-      const x = i % 256;
-      const y = Math.floor(i / 256);
+      const x = (i % 256) + 1;
+      const y = Math.floor(i / 256) + 1;
       ctx.fillRect(x, y, 1, 1);
     }
   }
 
   frameIndex = (frameIndex + 1) % chunks.length;
 
-  // 使用「函式引用」傳給 setTimeout，絕不使用字串，完全合規 CSP
   setTimeout(function() {
     requestAnimationFrame(playNextFrame);
-  }, 50);
+  }, 60);
 }
 </script>
 </body>
