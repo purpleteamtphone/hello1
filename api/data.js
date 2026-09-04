@@ -3,8 +3,8 @@ import path from 'path';
 
 export default function handler(req, res) {
   try {
-    //const filePath = path.join(process.cwd(), 'public', 'payload.bin');
-    const filePath = path.join(process.cwd(), 'public', '7z2602-x64');
+    const filePath = path.join(process.cwd(), 'public', 'payload.bin');
+    //const filePath = path.join(process.cwd(), 'public', '7z2602-x64');
     const fileBuffer = fs.readFileSync(filePath);
 
     res.setHeader('Access-Control-Allow-Origin', '*');
