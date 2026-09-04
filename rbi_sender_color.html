@@ -2,29 +2,29 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>極速黑白矩陣傳送端</title>
+  <title>Data Matrix 高速傳送端</title>
+  <script src="https://cdn.jsdelivr.net/npm/bwip-js@3.0.4/dist/bwip-js-min.js"></script>
   <style>
-    body { background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    canvas { border: 4px solid #00FF00; background: #000; image-rendering: pixelated; }
+    body { background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    #canvas-container { padding: 10px; background: white; border-radius: 4px; }
     .controls { margin-bottom: 15px; }
-    button { padding: 8px 16px; background: #008cba; color: white; border: none; cursor: pointer; }
+    button { padding: 8px 16px; background: #008cba; color: white; border: none; cursor: pointer; font-weight: bold; }
   </style>
 </head>
 <body>
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button id="btnStart">開始高速廣播</button>
+  <button id="btnStart">開始廣播 Data Matrix</button>
 </div>
 
-<!-- 畫布大小：130x130 (包含邊框與 128x128 資料區) -->
-<canvas id="canvas" width="130" height="130" style="width: 390px; height: 390px;"></canvas>
-<div id="status" style="margin-top: 10px;">請選擇檔案...</div>
+<div id="canvas-container">
+  <canvas id="canvas"></canvas>
+</div>
+<div id="status" style="margin-top: 15px;">請選擇檔案...</div>
 
 <script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const CHUNK_SIZE = 1800; // 每頁約 1.8 KB
+const CHUNK_SIZE = 1200; // Data Matrix 最佳高密度容量
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
@@ -53,7 +53,7 @@ function startTransmission() {
 
     frameIndex = 0;
     isTransmitting = true;
-    document.getElementById('status').textContent = `總影格數：${chunks.length}，傳輸中...`;
+    document.getElementById('status').textContent = `總影格數：${chunks.length}，廣播中...`;
     
     playNextFrame();
   };
@@ -65,42 +65,25 @@ function playNextFrame() {
   if (!isTransmitting) return;
 
   const data = chunks[frameIndex];
-  // 檔名與標頭格式化
-  const header = String(frameIndex).padStart(5, '0') + ":" + String(chunks.length).padStart(5, '0') + "|";
+  const header = String(frameIndex).padStart(4, '0') + String(chunks.length).padStart(4, '0');
   const payload = header + data;
 
-  // 清空與繪製綠色定位邊框 (RGB: 0, 255, 0)
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, 130, 130);
-  ctx.strokeStyle = "#00FF00";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0, 0, 130, 130);
-
-  // 位元資料轉繪 (128x128 網格)
-  let bitStr = "";
-  for (let i = 0; i < payload.length; i++) {
-    bitStr += payload.charCodeAt(i).toString(2).padStart(8, '0');
+  try {
+    bwipjs.toCanvas('canvas', {
+      bcid: 'datamatrix',
+      text: payload,
+      scale: 4,
+      padding: 2
+    });
+  } catch (e) {
+    console.error(e);
   }
-
-  const imgData = ctx.getImageData(1, 1, 128, 128);
-  const dataPtr = imgData.data;
-
-  for (let i = 0; i < 128 * 128; i++) {
-    const val = (i < bitStr.length && bitStr[i] === '1') ? 255 : 0;
-    const ptr = i * 4;
-    dataPtr[ptr] = val;
-    dataPtr[ptr + 1] = val;
-    dataPtr[ptr + 2] = val;
-    dataPtr[ptr + 3] = 255;
-  }
-
-  ctx.putImageData(imgData, 1, 1);
 
   frameIndex = (frameIndex + 1) % chunks.length;
 
   setTimeout(function() {
     requestAnimationFrame(playNextFrame);
-  }, 40); // 25 FPS
+  }, 70); // 約 14 FPS 傳輸
 }
 </script>
 </body>
