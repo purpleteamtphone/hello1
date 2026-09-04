@@ -30,13 +30,23 @@
 
   <script>
     let isSwReady = false;
-
-    // 1. 註冊 Service Worker
+    
     if ('serviceWorker' in navigator) {
+      // 監聽 Controller 切換事件 (SW 成功 claim 時會觸發)
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        isSwReady = true;
+        document.getElementById('status').innerText = 'Service Worker 已成功控制頁面！';
+      });
+    
       navigator.serviceWorker.register('./sw.js')
         .then((registration) => {
-          document.getElementById('status').innerText = 'Service Worker 註冊成功！';
-          isSwReady = true;
+          // 若已經被 Controller 控制，直接標記準備就緒
+          if (navigator.serviceWorker.controller) {
+            isSwReady = true;
+            document.getElementById('status').innerText = 'Service Worker 準備就緒！';
+          } else {
+            document.getElementById('status').innerText = 'Service Worker 啟用中，請稍候...';
+          }
         })
         .catch((err) => {
           document.getElementById('status').innerText = 'Service Worker 註冊失敗: ' + err;
