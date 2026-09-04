@@ -2,42 +2,32 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>4X 宮格超光速傳送端 (Fixed)</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <title>純文字 Base64 光學傳送端</title>
   <style>
-    body { font-family: sans-serif; background: #000; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .grid { display: grid; grid-template-columns: 200px 200px; gap: 10px; padding: 10px; background: #fff; border-radius: 8px; }
-    canvas { width: 200px; height: 200px; }
-    .controls { margin-bottom: 15px; }
-    button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+    body { background: #000; color: #fff; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    #display-box { width: 650px; height: 350px; background: #111; border: 4px solid #00ff00; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; }
+    #text-content { font-size: 28px; font-weight: bold; letter-spacing: 2px; word-break: break-all; color: #ffffff; text-align: center; line-height: 1.4; }
+    #header { font-size: 20px; color: #00ff00; margin-bottom: 15px; background: #222; padding: 4px 12px; border-radius: 4px; }
+    .controls { margin-bottom: 20px; }
+    button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; font-size: 16px; border-radius: 4px; }
   </style>
 </head>
 <body>
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button id="btnStart">啟動 4 通道矩陣噴射</button>
+  <button id="btnStart">啟動 Base64 高頻文字流</button>
 </div>
 
-<div class="grid">
-  <canvas id="c0" width="200" height="200"></canvas>
-  <canvas id="c1" width="200" height="200"></canvas>
-  <canvas id="c2" width="200" height="200"></canvas>
-  <canvas id="c3" width="200" height="200"></canvas>
+<div id="display-box">
+  <div id="header">READY</div>
+  <div id="text-content">請選擇檔案並點擊啟動...</div>
 </div>
 
-<div id="status" style="margin-top: 15px; font-weight: bold; color: #00ff00;">等待啟動...</div>
+<div id="status" style="margin-top: 15px; font-size: 18px; color: #00ff00; font-weight: bold;">等待中...</div>
 
 <script>
-const canvases = [
-  document.getElementById('c0'),
-  document.getElementById('c1'),
-  document.getElementById('c2'),
-  document.getElementById('c3')
-];
-const ctxs = canvases.map(c => c.getContext('2d'));
-
-const CHUNK_SIZE = 180; // 適中容量，確保低密度超快辨識
+const CHUNK_SIZE = 120; // 每幀顯示 120 個字元，字體夠大、OCR 辨識率最高
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
@@ -53,11 +43,8 @@ function startTransmission() {
 
   reader.onload = function(e) {
     const uint8Array = new Uint8Array(e.target.result);
-    
-    // 使用安全的 Base64 轉換避免字元溢位
     let binary = '';
-    const len = uint8Array.byteLength;
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < uint8Array.byteLength; i++) {
       binary += String.fromCharCode(uint8Array[i]);
     }
     const base64Data = window.btoa(binary);
@@ -69,7 +56,7 @@ function startTransmission() {
     
     frameIndex = 0;
     isTransmitting = true;
-    document.getElementById('status').textContent = `總切片數：${chunks.length}，4 通道極速噴射中...`;
+    document.getElementById('status').textContent = `總切片數：${chunks.length}，Base64 光學文字流廣播中...`;
     
     playFrame();
   };
@@ -77,54 +64,21 @@ function startTransmission() {
   reader.readAsArrayBuffer(file);
 }
 
-function renderQRCodeToCanvas(ctx, text) {
-  try {
-    // Type 0 自動選擇最小 Version，容錯率 L
-    const qr = qrcode(0, 'L');
-    qr.addData(text);
-    qr.make();
-    
-    const count = qr.getModuleCount();
-    const size = 200;
-    const tile = size / count;
-
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, size, size);
-
-    ctx.fillStyle = "#000000";
-    for (let r = 0; r < count; r++) {
-      for (let c = 0; c < count; c++) {
-        if (qr.isDark(r, c)) {
-          ctx.fillRect(c * tile, r * tile, tile + 0.5, tile + 0.5);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("QR 生成錯誤:", err);
-  }
-}
-
 function playFrame() {
   if (!isTransmitting) return;
 
-  for (let ch = 0; ch < 4; ch++) {
-    const idx = frameIndex + ch;
-    if (idx < chunks.length) {
-      const header = String(idx).padStart(5, '0') + '/' + String(chunks.length).padStart(5, '0') + '|';
-      const payload = header + chunks[idx];
-      renderQRCodeToCanvas(ctxs[ch], payload);
-    } else {
-      ctxs[ch].fillStyle = "#FFFFFF";
-      ctxs[ch].fillRect(0, 0, 200, 200);
-    }
-  }
+  const data = chunks[frameIndex];
+  // Header 格式：[00001/00100]
+  const headerText = `[${String(frameIndex).padStart(5, '0')}/${String(chunks.length).padStart(5, '0')}]`;
+  
+  document.getElementById('header').textContent = headerText;
+  document.getElementById('text-content').textContent = data;
 
-  frameIndex += 4;
-  if (frameIndex >= chunks.length) frameIndex = 0;
+  frameIndex = (frameIndex + 1) % chunks.length;
 
   setTimeout(() => {
     requestAnimationFrame(playFrame);
-  }, 16); // 接近 60 FPS 極速刷新
+  }, 33); // 約 30 FPS 極速滾動
 }
 </script>
 </body>
