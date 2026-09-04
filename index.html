@@ -2,35 +2,46 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>ArrayBuffer Fetch 範例</title>
+  <title>ArrayBuffer 資訊檢視</title>
+  <style>
+    pre { background: #f4f4f4; padding: 10px; border-radius: 4px; font-family: monospace; }
+  </style>
 </head>
 <body>
 
-  <h2>資料載入中...</h2>
+  <h2>Buffer 資訊檢視器</h2>
+  <div id="output">載入中...</div>
 
   <script>
-    async function fetchDataBuffer() {
+    async function inspectBuffer() {
       const fileUrl = 'https://raw.githubusercontent.com/purpleteamtphone/hello1/refs/heads/main/7z2602-x64.exe';
 
       try {
-        // 1. 取得 Response 物件
         const response = await fetch(fileUrl);
-        if (!response.ok) throw new Error(`HTTP 錯誤！狀態碼: ${response.status}`);
-
-        // 2. 解析為 ArrayBuffer (在記憶體中持有原始二進位資料)
         const buffer = await response.arrayBuffer();
 
-        console.log('ArrayBuffer 讀取成功，位元組長度:', buffer.byteLength);
-
-        // 這裡可對 buffer 進行後續記憶體處理（例如 DataView 讀取、WebAssembly 傳遞或二進位運算）
+        // 讀取前 64 個位元組進行 Hex 檢視
+        const uint8Array = new Uint8Array(buffer);
+        const headerBytes = uint8Array.slice(0, 64);
         
+        let hexString = '';
+        headerBytes.forEach((byte, index) => {
+          hexString += byte.toString(16).padStart(2, '0').toUpperCase() + ' ';
+          if ((index + 1) % 16 === 0) hexString += '\n'; // 每 16 個 Byte 換行
+        });
+
+        // 呈現在網頁畫面上
+        document.getElementById('output').innerHTML = `
+          <p><strong>檔案總大小：</strong> ${buffer.byteLength.toLocaleString()} Bytes</p>
+          <p><strong>檔頭前 64 個 Byte (Hex Dump)：</strong></p>
+          <pre>${hexString}</pre>
+        `;
       } catch (error) {
-        console.error('Fetch 過程發生錯誤:', error);
+        document.getElementById('output').innerText = '載入失敗：' + error.message;
       }
     }
 
-    // 網頁 DOM 載入完成時自動觸發
-    window.addEventListener('DOMContentLoaded', fetchDataBuffer);
+    window.addEventListener('DOMContentLoaded', inspectBuffer);
   </script>
 
 </body>
