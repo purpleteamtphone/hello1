@@ -1,47 +1,45 @@
-// 儲存從主頁面傳遞過來的二進位資料
-let fileData = null;
+let storedBuffer = null;
+let mimeType = 'application/octet-stream';
 
-// 監聽來自主頁面的 postMessage
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SET_BUFFER') {
-    fileData = {
-      buffer: event.data.buffer,
-      filename: event.data.filename || 'downloaded_file.bin',
-      mimeType: event.data.mimeType || 'application/octet-stream'
-    };
-    // 通知頁面資料已準備完畢
-    event.ports[0].postMessage({ status: 'READY' });
+    storedBuffer = event.data.buffer;
+    mimeType = event.data.mimeType || 'application/octet-stream';
+    
+    // 回應 MessagePort
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ status: 'READY' });
+    }
   }
 });
 
-// 攔截網路請求
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 檢查是否為虛擬下載路由
+  // 攔截虛擬路由
   if (url.pathname.endsWith('/virtual-download')) {
-    if (!fileData || !fileData.buffer) {
-      event.respondWith(new Response('No data available in Service Worker', { status: 404 }));
+    if (!storedBuffer) {
+      event.respondWith(new Response('No data', { status: 404 }));
       return;
     }
 
-    // 建立二進位 Response，並加入檔頭指示瀏覽器觸發下載
+    // 建立只包含 application/octet-stream 的 Response
+    // 嚴禁包含 Content-Disposition: attachment 標頭
     const responseHeaders = new Headers({
-      'Content-Type': fileData.mimeType,
-      'Content-Disposition': `attachment; filename="${fileData.filename}"`,
-      'Content-Length': fileData.buffer.byteLength.toString()
+      'Content-Type': mimeType,
+      'Content-Length': storedBuffer.byteLength.toString(),
+      'Cache-Control': 'no-store'
     });
 
-    const response = new Response(fileData.buffer, {
+    const response = new Response(storedBuffer, {
       status: 200,
+      statusText: 'OK',
       headers: responseHeaders
     });
 
+    // 清除暫存 (選擇性)
+    storedBuffer = null;
+
     event.respondWith(response);
   }
-});
-
-// 確保 Service Worker 註冊後立即啟用
-self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
 });
