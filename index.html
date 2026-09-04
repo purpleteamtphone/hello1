@@ -2,93 +2,77 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>Buffer 檢視與傳送至 Express</title>
+  <title>Service Worker 虛擬流式下載</title>
   <style>
     body { font-family: sans-serif; margin: 20px; }
-    pre { background: #f4f4f4; padding: 10px; border-radius: 4px; font-family: monospace; }
-    button { padding: 10px 20px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    #status { margin-top: 15px; color: #333; }
   </style>
 </head>
 <body>
 
-  <h2>Buffer 資訊檢視器</h2>
-  <div id="output">載入中...</div>
-
-  <!-- 按鈕：傳送 Buffer 至伺服器 -->
-  <button id="sendBtn" style="display: none;" onclick="sendBufferToServer()">傳送 Buffer 到本地 Express 存檔</button>
+  <h2>Service Worker 記憶體資料下載範例</h2>
+  <button id="downloadBtn" onclick="triggerServiceWorkerDownload()">下載記憶體中的 Buffer</button>
+  <div id="status">正在初始化 Service Worker...</div>
 
   <script>
-    let globalBuffer = null;
+    let isSwReady = false;
 
-    async function inspectAndLoadBuffer() {
-      const fileUrl = 'https://raw.githubusercontent.com/purpleteamtphone/hello1/refs/heads/main/7z2602-x64.exe';
-
-      try {
-        // 1. 全量載入檔案至記憶體 (ArrayBuffer)
-        const response = await fetch(fileUrl);
-        if (!response.ok) throw new Error('檔案讀取失敗');
-
-        globalBuffer = await response.arrayBuffer();
-
-        // 2. 顯示前 64 個 Byte 的 Hex Dump
-        const uint8Array = new Uint8Array(globalBuffer);
-        const headerBytes = uint8Array.slice(0, 64);
-        
-        let hexString = '';
-        headerBytes.forEach((byte, index) => {
-          hexString += byte.toString(16).padStart(2, '0').toUpperCase() + ' ';
-          if ((index + 1) % 16 === 0) hexString += '\n';
+    // 1. 註冊 Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js')
+        .then((registration) => {
+          document.getElementById('status').innerText = 'Service Worker 註冊成功！';
+          isSwReady = true;
+        })
+        .catch((err) => {
+          document.getElementById('status').innerText = 'Service Worker 註冊失敗: ' + err;
         });
-
-        document.getElementById('output').innerHTML = `
-          <p><strong>檔案總大小：</strong> ${globalBuffer.byteLength.toLocaleString()} Bytes</p>
-          <p><strong>檔頭前 64 個 Byte (Hex Dump)：</strong></p>
-          <pre>${hexString}</pre>
-        `;
-
-        // 顯示按鈕
-        document.getElementById('sendBtn').style.display = 'inline-block';
-
-      } catch (error) {
-        document.getElementById('output').innerText = '載入失敗：' + error.message;
-      }
+    } else {
+      document.getElementById('status').innerText = '目前瀏覽器不支援 Service Worker';
     }
 
-    // 將記憶體中的 ArrayBuffer 傳送到 Node.js Express 伺服器
-    async function sendBufferToServer() {
-      if (!globalBuffer) return;
+    // 2. 模擬生成或讀取記憶體資料 (ArrayBuffer)
+    function generateSampleBuffer() {
+      const size = 1024 * 1024; // 1MB 範例資料
+      const buffer = new ArrayBuffer(size);
+      const view = new Uint8Array(buffer);
+      for (let i = 0; i < size; i++) {
+        view[i] = i % 256;
+      }
+      return buffer;
+    }
 
-      const btn = document.getElementById('sendBtn');
-      btn.disabled = true;
-      btn.innerText = '傳送中...';
+    // 3. 觸發下載流程
+    async function triggerServiceWorkerDownload() {
+      if (!isSwReady || !navigator.serviceWorker.controller) {
+        alert('Service Worker 尚未準備就緒，請重新整理頁面再試');
+        return;
+      }
 
-      try {
-        // 發送 POST 請求，直接將 ArrayBuffer 作為 body 傳送
-        const response = await fetch('http://localhost:3000/upload', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/octet-stream'
-          },
-          body: globalBuffer // 直接發送記憶體裡面的二進位 ArrayBuffer
-        });
+      document.getElementById('status').innerText = '正在將 Buffer 傳送給 Service Worker...';
 
-        const resultText = await response.text();
+      const sampleBuffer = generateSampleBuffer();
+      const channel = new MessageChannel();
 
-        if (response.ok) {
-          alert('成功：' + resultText);
-        } else {
-          alert('失敗：' + resultText);
+      // 接收 Service Worker 的確認回應
+      channel.port1.onmessage = (event) => {
+        if (event.data.status === 'READY') {
+          document.getElementById('status').innerText = '資料已傳送，觸發下載中...';
+          
+          // 導向虛擬路由，觸發 Service Worker 攔截並下載
+          window.location.href = './virtual-download';
         }
-      } catch (error) {
-        console.error('傳送過程發生錯誤:', error);
-        alert('傳送失敗，請確認 Express Server 是否正常運作');
-      } finally {
-        btn.disabled = false;
-        btn.innerText = '傳送 Buffer 到本地 Express 存檔';
-      }
-    }
+      };
 
-    window.addEventListener('DOMContentLoaded', inspectAndLoadBuffer);
+      // 將 ArrayBuffer 轉移給 Service Worker (利用 Transferable Objects 避免複製開銷)
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SET_BUFFER',
+        buffer: sampleBuffer,
+        filename: 'demo_data.bin',
+        mimeType: 'application/octet-stream'
+      }, [channel.port2], [sampleBuffer]);
+    }
   </script>
 
 </body>
