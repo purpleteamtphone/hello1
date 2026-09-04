@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>RBI Safe Storage Demo</title>
+  <title>RBI Safe Storage Demo (Blob URL)</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -24,8 +24,8 @@
 </head>
 <body>
 
-  <h2>RBI 避檢測：純記憶體傳輸與 File System API 存檔範例</h2>
-  <button id="btn-process" onclick="processAndSave()">1. 取得資料並另存新檔</button>
+  <h2>RBI 避檢測：純記憶體傳輸與 Blob URL 存檔範例</h2>
+  <button id="btn-process" onclick="processAndSave()">1. 取得資料並下載存檔</button>
   <div id="status">準備就緒</div>
 
   <script>
@@ -56,7 +56,7 @@
       return buffer;
     }
 
-    // 3. 核心處理與儲存流程
+    // 3. 核心處理流程
     async function processAndSave() {
       if (!isSwReady || !navigator.serviceWorker.controller) {
         alert('Service Worker 尚未準備就緒，請重新整理頁面再試');
@@ -80,10 +80,12 @@
 
             const dataBuffer = await response.arrayBuffer();
 
-            document.getElementById('status').innerText = '資料已存入記憶體，準備開啟另存新檔視窗...';
+            document.getElementById('status').innerText = '資料已存入記憶體，觸發 Blob URL 下載...';
 
-            // 呼叫 File System Access API 將資料寫入硬碟
-            await saveBufferToDisk(dataBuffer, 'demo_data.bin');
+            // 使用 Blob URL 方式寫入硬碟
+            saveViaBlobUrl(dataBuffer, 'demo_data.bin');
+
+            document.getElementById('status').innerText = `已完成儲存！(大小: ${dataBuffer.byteLength} bytes)`;
 
           } catch (err) {
             document.getElementById('status').innerText = '處理過程發生錯誤: ' + err.message;
@@ -92,7 +94,7 @@
         }
       };
 
-      // 利用 Transferable Objects 將 Buffer 轉移給 SW
+      // 利用 Transferable Objects 將 Buffer 轉移給 Service Worker
       navigator.serviceWorker.controller.postMessage({
         type: 'SET_BUFFER',
         buffer: sampleBuffer,
@@ -100,39 +102,26 @@
       }, [channel.port2], [sampleBuffer]);
     }
 
-    // 4. 使用 File System Access API 儲存至本機
-    async function saveBufferToDisk(buffer, defaultName = 'demo_data.bin') {
-      // 檢查瀏覽器是否支援 showSaveFilePicker API
-      if (!('showSaveFilePicker' in window)) {
-        alert('您的瀏覽器不支援 File System Access API，無法使用此方式存檔。');
-        return;
-      }
-
-      try {
-        // 跳出作業系統原生的「另存新檔」對話框
-        const handle = await window.showSaveFilePicker({
-          suggestedName: defaultName,
-          types: [{
-            description: 'Binary Data',
-            accept: { 'application/octet-stream': ['.bin', '.dat'] },
-          }],
-        });
-
-        // 建立檔案寫入串流並直接輸出
-        const writable = await handle.createWritable();
-        await writable.write(buffer);
-        await writable.close();
-
-        document.getElementById('status').innerText = `檔案已成功寫入硬碟！(大小: ${buffer.byteLength} bytes)`;
-      } catch (err) {
-        // 使用者主動取消選擇視窗時會發出 AbortError，無須當作錯誤處理
-        if (err.name === 'AbortError') {
-          document.getElementById('status').innerText = '使用者已取消存檔。';
-        } else {
-          document.getElementById('status').innerText = '寫入檔案失敗: ' + err.message;
-          console.error('Save File Error:', err);
-        }
-      }
+    // 4. 使用 In-Memory Blob URL 進行存檔
+    function saveViaBlobUrl(buffer, filename = 'demo_data.bin') {
+      // 1. 將 ArrayBuffer 轉為純記憶體 Blob
+      const blob = new Blob([buffer], { type: 'application/octet-stream' });
+      
+      // 2. 建立內部記憶體 URL (格式為 blob:https://...)
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // 3. 建立隱藏 <a> 標籤觸發儲存
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      
+      a.click();
+      
+      // 4. 立即銷毀 <a> 標籤與記憶體 URL，不留痕跡
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     }
   </script>
 </body>
