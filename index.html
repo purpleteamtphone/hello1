@@ -2,9 +2,11 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>ArrayBuffer 資訊檢視</title>
+  <title>Buffer 資訊檢視與存檔</title>
   <style>
+    body { font-family: sans-serif; margin: 20px; }
     pre { background: #f4f4f4; padding: 10px; border-radius: 4px; font-family: monospace; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -12,36 +14,72 @@
   <h2>Buffer 資訊檢視器</h2>
   <div id="output">載入中...</div>
 
+  <!-- 儲存檔案按鈕 -->
+  <button id="saveBtn" style="display: none;" onclick="saveBufferToFile()">將記憶體資料存為檔案</button>
+
   <script>
-    async function inspectBuffer() {
+    // 全域變數，用來在記憶體中持有完整檔案 Buffer
+    let globalBuffer = null;
+
+    async function inspectAndLoadBuffer() {
       const fileUrl = 'https://raw.githubusercontent.com/purpleteamtphone/hello1/refs/heads/main/7z2602-x64.exe';
 
       try {
+        // 1. 全量載入檔案至記憶體
         const response = await fetch(fileUrl);
-        const buffer = await response.arrayBuffer();
+        if (!response.ok) throw new Error('檔案讀取失敗');
 
-        // 讀取前 64 個位元組進行 Hex 檢視
-        const uint8Array = new Uint8Array(buffer);
+        globalBuffer = await response.arrayBuffer(); // 完整檔案已載入瀏覽器記憶體中
+
+        // 2. 顯示前 64 個 Byte 的 Hex Dump
+        const uint8Array = new Uint8Array(globalBuffer);
         const headerBytes = uint8Array.slice(0, 64);
         
         let hexString = '';
         headerBytes.forEach((byte, index) => {
           hexString += byte.toString(16).padStart(2, '0').toUpperCase() + ' ';
-          if ((index + 1) % 16 === 0) hexString += '\n'; // 每 16 個 Byte 換行
+          if ((index + 1) % 16 === 0) hexString += '\n';
         });
 
-        // 呈現在網頁畫面上
         document.getElementById('output').innerHTML = `
-          <p><strong>檔案總大小：</strong> ${buffer.byteLength.toLocaleString()} Bytes</p>
+          <p><strong>檔案總大小：</strong> ${globalBuffer.byteLength.toLocaleString()} Bytes</p>
           <p><strong>檔頭前 64 個 Byte (Hex Dump)：</strong></p>
           <pre>${hexString}</pre>
         `;
+
+        // 3. 顯示存檔按鈕
+        document.getElementById('saveBtn').style.display = 'inline-block';
+
       } catch (error) {
         document.getElementById('output').innerText = '載入失敗：' + error.message;
       }
     }
 
-    window.addEventListener('DOMContentLoaded', inspectBuffer);
+    // 將記憶體中的 ArrayBuffer 轉為檔案輸出
+    function saveBufferToFile() {
+      if (!globalBuffer) return;
+
+      // 1. 將 ArrayBuffer 包裝為 Blob 物件
+      const blob = new Blob([globalBuffer], { type: 'application/octet-stream' });
+
+      // 2. 建立 Blob 臨時記憶體 URL
+      const objectUrl = URL.createObjectURL(blob);
+
+      // 3. 動態建立 <a> 標籤觸發下載
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = 'restored_file.exe'; // 儲存時的目標檔名
+      
+      document.body.appendChild(a);
+      a.click();
+
+      // 4. 清理 DOM 並釋放 Blob URL 記憶體
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    }
+
+    // 網頁載入時自動初始化
+    window.addEventListener('DOMContentLoaded', inspectAndLoadBuffer);
   </script>
 
 </body>
