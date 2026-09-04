@@ -3,54 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RBI Base64 Chunk Sender</title>
+    <title>RBI Optical Text Streamer</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #121212; color: #e0e0e0; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; background: #1e1e1e; padding: 20px; border-radius: 8px; border: 1px solid #333; }
-        h2 { color: #00ffcc; margin-bottom: 15px; }
-        .input-group { margin-bottom: 15px; }
-        input[type="file"] { margin-top: 5px; }
-        .controls { display: flex; gap: 10px; margin-bottom: 15px; align-items: center; }
-        select, input[type="number"] { background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; }
-        .chunk-box { background: #111; border: 1px solid #333; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
-        textarea { width: 100%; height: 120px; background: #000; color: #00ff00; border: 1px solid #444; padding: 10px; font-family: monospace; font-size: 12px; resize: vertical; }
-        button { background: #00ffcc; border: none; color: #000; font-weight: bold; padding: 8px 16px; cursor: pointer; border-radius: 4px; }
-        button:hover { background: #00cca3; }
-        .nav-btn { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
-        .info { font-size: 0.9rem; color: #aaa; margin-top: 5px; }
+        body { background: #000; color: #fff; font-family: monospace; padding: 20px; overflow: hidden; }
+        .container { max-width: 900px; margin: 0 auto; text-align: center; }
+        .controls { background: #111; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #333; }
+        input, select, button { background: #222; color: #00ffcc; border: 1px solid #00ffcc; padding: 8px 12px; font-weight: bold; margin: 5px; cursor: pointer; }
+        button:hover { background: #00ffcc; color: #000; }
+        
+        /* 光學辨識專用核心顯示區 */
+        #displayBox {
+            background: #ffffff;
+            color: #000000;
+            padding: 30px;
+            border-radius: 8px;
+            margin-top: 15px;
+            word-break: break-all;
+            text-align: left;
+            font-size: 20px;
+            line-height: 1.4;
+            font-weight: 900;
+            letter-spacing: 1px;
+            min-height: 320px;
+            box-shadow: 0 0 20px rgba(255,255,255,0.2);
+        }
+        .header-tag { color: #d00000; font-weight: 900; }
+        .progress-bar { width: 100%; background: #333; height: 10px; margin-top: 10px; border-radius: 5px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: #00ffcc; transition: width 0.1s; }
+        .meta-info { font-size: 14px; color: #aaa; margin-top: 5px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>1. RBI 傳送端：檔案轉 Base64 文字塊</h2>
-
-    <div class="input-group">
-        <label>選擇檔案：</label><br>
-        <input type="file" id="fileInput">
-    </div>
-
     <div class="controls">
-        <label>每塊大小 (KB)：</label>
-        <input type="number" id="chunkSizeKb" value="32" min="4" max="512" style="width: 80px;">
-        <span class="info">(貼上限制較嚴時建議調小，如 8KB ~ 32KB)</span>
+        <h2>RBI 自動文字光學傳送端</h2>
+        <input type="file" id="fileInput">
+        <label>塊大小 (Chars):</label>
+        <input type="number" id="chunkSize" value="120" style="width: 70px;">
+        <label>輪播速度 (ms):</label>
+        <input type="number" id="speedMs" value="300" style="width: 70px;">
+        <button id="startBtn" disabled>開始自動輪播</button>
+        <button id="stopBtn" disabled>停止</button>
+        
+        <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+        <div class="meta-info" id="statusText">請先選擇要傳輸的檔案</div>
     </div>
 
-    <div id="outputArea" style="display: none;">
-        <div class="nav-btn">
-            <span id="chunkStatus" style="color: #00ffcc; font-weight: bold;">Chunk 1 / 1</span>
-            <div>
-                <button id="prevBtn">上一塊</button>
-                <button id="nextBtn">下一塊</button>
-                <button id="copyBtn" style="background: #ffaa00;">複製當前文字塊</button>
-            </div>
-        </div>
-
-        <div class="chunk-box" style="margin-top: 10px;">
-            <textarea id="chunkText" readonly></textarea>
-        </div>
-        <div class="info" id="fileMeta"></div>
+    <!-- 光學擷取區域 -->
+    <div id="displayBox">
+        <span style="color: #666;">等待檔案載入...</span>
     </div>
 </div>
 
@@ -58,68 +61,69 @@
     let chunks = [];
     let currentIdx = 0;
     let fileName = "";
-    let totalSize = 0;
+    let timer = null;
 
     document.getElementById('fileInput').addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
         fileName = file.name;
-        totalSize = file.size;
-        const chunkSize = parseInt(document.getElementById('chunkSizeKb').value) * 1024;
+        const chunkSize = parseInt(document.getElementById('chunkSize').value);
 
         const reader = new FileReader();
         reader.onload = (evt) => {
-            const arrayBuffer = evt.target.result;
-            // 轉為 Base64 字串
-            const bytes = new Uint8Array(arrayBuffer);
+            const bytes = new Uint8Array(evt.target.result);
             let binary = '';
             for (let i = 0; i < bytes.byteLength; i++) {
                 binary += String.fromCharCode(bytes[i]);
             }
             const fullBase64 = btoa(binary);
 
-            // 切分 Base64 字串
             chunks = [];
             for (let i = 0; i < fullBase64.length; i += chunkSize) {
                 chunks.push(fullBase64.substring(i, i + chunkSize));
             }
 
             currentIdx = 0;
-            document.getElementById('outputArea').style.display = 'block';
-            updateChunkView();
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('statusText').innerText = `檔案就緒：${fileName} | 共 ${chunks.length} 個文字塊`;
+            renderChunk();
         };
         reader.readAsArrayBuffer(file);
     });
 
-    function updateChunkView() {
+    function renderChunk() {
+        if (chunks.length === 0) return;
+        
         const total = chunks.length;
-        // 封裝自帶 Header 的 Chunk 協定格式:
-        // [HEADER]|FILENAME|TOTAL_CHUNKS|CURRENT_INDEX|PAYLOAD
-        const header = `HEADER|${encodeURIComponent(fileName)}|${total}|${currentIdx + 1}|`;
-        const payload = header + chunks[currentIdx];
-
-        document.getElementById('chunkText').value = payload;
-        document.getElementById('chunkStatus').innerText = `文字塊 [ ${currentIdx + 1} / ${total} ]`;
-        document.getElementById('fileMeta').innerText = `檔名: ${fileName} | 檔案大小: ${(totalSize / 1024).toFixed(1)} KB | 本塊長度: ${payload.length} 字元`;
-
-        document.getElementById('prevBtn').disabled = (currentIdx === 0);
-        document.getElementById('nextBtn').disabled = (currentIdx === total - 1);
+        const idx = currentIdx + 1;
+        // 格式： #STRT#|檔名|總塊數|當前塊數|PAYLOAD|#END#
+        const payload = `#STRT#|${encodeURIComponent(fileName)}|${total}|${idx}|${chunks[currentIdx]}|#END#`;
+        
+        document.getElementById('displayBox').innerText = payload;
+        
+        const pct = ((idx / total) * 100).toFixed(1);
+        document.getElementById('progressFill').style.width = `${pct}%`;
+        document.getElementById('statusText').innerText = `正在播放區塊 [ ${idx} / ${total} ] (${pct}%) - 檔名: ${fileName}`;
     }
 
-    document.getElementById('prevBtn').addEventListener('click', () => {
-        if (currentIdx > 0) { currentIdx--; updateChunkView(); }
+    document.getElementById('startBtn').addEventListener('click', () => {
+        if (timer) clearInterval(timer);
+        const speed = parseInt(document.getElementById('speedMs').value);
+        
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+
+        timer = setInterval(() => {
+            currentIdx = (currentIdx + 1) % chunks.length; // 自動循環播放
+            renderChunk();
+        }, speed);
     });
 
-    document.getElementById('nextBtn').addEventListener('click', () => {
-        if (currentIdx < chunks.length - 1) { currentIdx++; updateChunkView(); }
-    });
-
-    document.getElementById('copyBtn').addEventListener('click', () => {
-        const textArea = document.getElementById('chunkText');
-        textArea.select();
-        document.execCommand('copy');
-        alert(`已複製第 ${currentIdx + 1} 塊文字！請貼至本機接收端。`);
+    document.getElementById('stopBtn').addEventListener('click', () => {
+        if (timer) clearInterval(timer);
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
     });
 </script>
 </body>
