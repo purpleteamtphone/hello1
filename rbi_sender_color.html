@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>高速彩色矩陣傳送端</title>
+  <style>
+    body { background: #000; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    canvas { border: 2px solid #555; image-rendering: pixelated; }
+    .controls { margin-bottom: 10px; }
+    button { padding: 8px 16px; background: #008cba; color: white; border: none; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<div class="controls">
+  <input type="file" id="fileInput">
+  <button id="btnStart">開始高速傳輸</button>
+</div>
+
+<!-- 128x128 像素陣列，每個 Block 代表 3 bits -->
+<canvas id="canvas" width="128" height="128" style="width: 384px; height: 384px;"></canvas>
+<div id="status" style="margin-top: 10px;">請選擇檔案...</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+// 8 色 RGB 映射 (3-bits per pixel)
+const COLOR_MAP = [
+  [0,0,0],       // 000: 黑
+  [255,0,0],     // 001: 紅
+  [0,255,0],     // 010: 綠
+  [0,0,255],     // 011: 藍
+  [255,255,0],   // 100: 黃
+  [255,0,255],   // 101: 紫
+  [0,255,255],   // 110: 青
+  [255,255,255]  // 111: 白
+];
+
+const CHUNK_SIZE = 6000; // 每頁約 6KB
+let chunks = [];
+let frameIndex = 0;
+let isTransmitting = false;
+
+document.getElementById('btnStart').addEventListener('click', startTransmission);
+
+function startTransmission() {
+  const fileInput = document.getElementById('fileInput');
+  if (!fileInput.files.length) return alert("請先選擇檔案！");
+
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+
+  reader.onload = function(e) {
+    const uint8Array = new Uint8Array(e.target.result);
+    let binary = '';
+    for (let i = 0; i < uint8Array.byteLength; i++) {
+      binary += String.fromCharCode(uint8Array[i]);
+    }
+    const base64 = window.btoa(binary);
+
+    chunks = [];
+    for (let i = 0; i < base64.length; i += CHUNK_SIZE) {
+      chunks.push(base64.slice(i, i + CHUNK_SIZE));
+    }
+
+    frameIndex = 0;
+    isTransmitting = true;
+    document.getElementById('status').textContent = `總影格數：${chunks.length}，傳輸中...`;
+    
+    playNextFrame();
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+function playNextFrame() {
+  if (!isTransmitting) return;
+
+  const data = chunks[frameIndex];
+  const header = String(frameIndex).padStart(4, '0') + String(chunks.length).padStart(4, '0');
+  const payload = header + data;
+
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, 128, 128);
+
+  // 將位元字串轉為 3-bit 顏色渲染
+  let bitStr = "";
+  for (let i = 0; i < payload.length; i++) {
+    bitStr += payload.charCodeAt(i).toString(2).padStart(8, '0');
+  }
+
+  const imgData = ctx.createImageData(128, 128);
+  const dataPtr = imgData.data;
+
+  let ptr = 0;
+  for (let i = 0; i < bitStr.length; i += 3) {
+    const chunk = bitStr.substr(i, 3).padEnd(3, '0');
+    const colorIdx = parseInt(chunk, 2);
+    const rgb = COLOR_MAP[colorIdx];
+
+    const pixelIdx = ptr * 4;
+    dataPtr[pixelIdx] = rgb[0];
+    dataPtr[pixelIdx + 1] = rgb[1];
+    dataPtr[pixelIdx + 2] = rgb[2];
+    dataPtr[pixelIdx + 3] = 255;
+    ptr++;
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+
+  frameIndex = (frameIndex + 1) % chunks.length;
+
+  // 高速播放 (約 15~20 FPS)
+  setTimeout(function() {
+    requestAnimationFrame(playNextFrame);
+  }, 50);
+}
+</script>
+</body>
+</html>
