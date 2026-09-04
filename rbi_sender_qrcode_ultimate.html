@@ -1,109 +1,99 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <title>RGB 色彩光學極速傳送端</title>
-  <style>
-    body { background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    #canvas-container { border: 4px solid #fff; padding: 0; background: #000; }
-    canvas { display: block; }
-    .controls { margin-bottom: 20px; }
-    button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; font-size: 16px; border-radius: 4px; }
-  </style>
+    <meta charset="UTF-8">
+    <title>RBI Optical Sender</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #000; color: #fff; font-family: monospace; padding: 20px; text-align: center; }
+        #matrixContainer { display: flex; justify-content: center; margin: 20px 0; }
+        canvas { background: #000; border: 4px solid #333; image-rendering: pixelated; }
+        .controls { margin-top: 15px; display: flex; justify-content: center; gap: 10px; }
+        textarea { width: 80%; height: 80px; background: #111; color: #00ff00; border: 1px solid #444; padding: 10px; }
+        button { padding: 10px 20px; background: #00ffcc; border: none; font-weight: bold; cursor: pointer; }
+    </style>
 </head>
 <body>
 
-<div class="controls">
-  <input type="file" id="fileInput">
-  <button id="btnStart">啟動 RGB 矩陣全速噴射</button>
-</div>
+    <h2>RBI 傳送端 (Sender - Inside RBI)</h2>
+    <div id="matrixContainer">
+        <canvas id="txCanvas" width="512" height="512"></canvas>
+    </div>
 
-<div id="canvas-container">
-  <canvas id="matrixCanvas" width="400" height="400"></canvas>
-</div>
-
-<div id="status" style="margin-top: 15px; font-size: 18px; color: #00ff00; font-weight: bold;">等待檔案...</div>
+    <textarea id="dataInput" placeholder="輸入要傳出 RBI 的資料...">Text sent from Remote Browser Isolation (RBI) environment via Optical Color Matrix.</textarea>
+    
+    <div class="controls">
+        <button id="sendBtn">開始光學廣播</button>
+        <button id="fullScreenBtn">全螢幕切換 (避免 RBI 邊框干擾)</button>
+    </div>
 
 <script>
-const canvas = document.getElementById('matrixCanvas');
-const ctx = canvas.getContext('2d');
+    const GRID_SIZE = 16;
+    const canvas = document.getElementById('txCanvas');
+    const ctx = canvas.getContext('2d');
+    const CELL_SIZE = canvas.width / GRID_SIZE;
 
-const GRID_SIZE = 16;
-const BLOCK_SIZE = 400 / GRID_SIZE;
-const CHUNK_SIZE = GRID_SIZE * GRID_SIZE - 4; // 扣除 4 個角標
+    let clockState = 0; // 0: Black, 1: White
+    let timer = null;
 
-let fileBytes = null;
-let totalChunks = 0;
-let frameIndex = 0;
-let isTransmitting = false;
+    function renderFrame(payloadBytes) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-document.getElementById('btnStart').addEventListener('click', startTransmission);
+        let byteIdx = 0;
 
-function startTransmission() {
-  const fileInput = document.getElementById('fileInput');
-  if (!fileInput.files.length) return alert("請選擇檔案！");
+        for (let row = 0; row < GRID_SIZE; row++) {
+            for (let col = 0; col < GRID_SIZE; col++) {
+                const x = col * CELL_SIZE;
+                const y = row * CELL_SIZE;
 
-  const file = fileInput.files[0];
-  const reader = new FileReader();
-
-  reader.onload = function(e) {
-    fileBytes = new Uint8Array(e.target.result);
-    totalChunks = Math.ceil(fileBytes.length / CHUNK_SIZE);
-    
-    frameIndex = 0;
-    isTransmitting = true;
-    document.getElementById('status').textContent = `總色塊影格：${totalChunks}，RGB 色彩陣列噴射中...`;
-    
-    playFrame();
-  };
-
-  reader.readAsArrayBuffer(file);
-}
-
-function playFrame() {
-  if (!isTransmitting) return;
-
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, 400, 400);
-
-  // 1. 繪製標準定位標角 (絕對純色)
-  drawBlock(0, 0, 255, 0, 0);     // 左上：紅
-  drawBlock(15, 0, 0, 255, 0);    // 右上：綠
-  drawBlock(0, 15, 0, 0, 255);    // 左下：藍
-
-  // 2. 寫入 Header 標頭：(15, 15) 的 R 管道=當前影格高位, G 管道=當前影格低位, B 管道=總影格數
-  const offset = frameIndex * CHUNK_SIZE;
-  const chunkData = fileBytes.subarray(offset, offset + CHUNK_SIZE);
-  
-  const fHigh = (frameIndex >> 8) & 0xFF;
-  const fLow = frameIndex & 0xFF;
-  drawBlock(15, 15, fHigh, fLow, Math.min(totalChunks, 255));
-
-  // 3. 填入資料像素
-  let dataIdx = 0;
-  for (let y = 0; y < GRID_SIZE; y++) {
-    for (let x = 0; x < GRID_SIZE; x++) {
-      if ((x===0&&y===0) || (x===15&&y===0) || (x===0&&y===15) || (x===15&&y===15)) continue;
-
-      if (dataIdx < chunkData.length) {
-        const val = chunkData[dataIdx];
-        drawBlock(x, y, val, val, val);
-        dataIdx++;
-      }
+                // 1. 定位與校正標記 (4角 Anchor)
+                if (row === 0 && col === 0) {
+                    ctx.fillStyle = 'rgb(255, 0, 0)'; // 左上: 純紅
+                } else if (row === 0 && col === GRID_SIZE - 1) {
+                    ctx.fillStyle = 'rgb(0, 255, 0)'; // 右上: 純綠
+                } else if (row === GRID_SIZE - 1 && col === 0) {
+                    ctx.fillStyle = 'rgb(0, 0, 255)'; // 左下: 純藍
+                } else if (row === GRID_SIZE - 1 && col === GRID_SIZE - 1) {
+                    // 右下: Clock Sync 閃爍訊號 (用於防重複採樣)
+                    ctx.fillStyle = clockState ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)';
+                } else {
+                    // 2. 資料色塊填充 (灰階對應)
+                    if (byteIdx < payloadBytes.length) {
+                        const val = payloadBytes[byteIdx++];
+                        ctx.fillStyle = `rgb(${val}, ${val}, ${val})`;
+                    } else {
+                        ctx.fillStyle = 'rgb(0, 0, 0)';
+                    }
+                }
+                ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+            }
+        }
     }
-  }
 
-  frameIndex = (frameIndex + 1) % totalChunks;
+    document.getElementById('sendBtn').addEventListener('click', () => {
+        if (timer) clearInterval(timer);
 
-  setTimeout(() => {
-    requestAnimationFrame(playFrame);
-  }, 16);
-}
+        const text = document.getElementById('dataInput').value;
+        const bytes = new TextEncoder().encode(text);
 
-function drawBlock(x, y, r, g, b) {
-  ctx.fillStyle = `rgb(${r},${g},${b})`;
-  ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-}
+        // 每 100ms 切換 Clock 狀態，對應約 10 FPS（可抵禦 RBI 視訊延遲與掉幀）
+        timer = setInterval(() => {
+            clockState = clockState === 0 ? 1 : 0;
+            renderFrame(bytes);
+        }, 100);
+    });
+
+    document.getElementById('fullScreenBtn').addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+            canvas.requestFullscreen().catch(err => alert(err.message));
+        } else {
+            document.exitFullscreen();
+        }
+    });
+
+    // 初始化渲染預設畫面
+    renderFrame(new TextEncoder().encode("RBI Data Transfer Initialized"));
 </script>
 </body>
 </html>
