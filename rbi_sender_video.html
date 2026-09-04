@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>RBI 畫面訊號傳送端</title>
+  <title>RBI 畫面訊號傳送端 (CSP Safe)</title>
   <style>
     body { font-family: sans-serif; background: #1e1e1e; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     canvas { border: 4px solid #00ff00; background: black; image-rendering: pixelated; }
@@ -14,7 +14,7 @@
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button onclick="startTransmission()">開始廣播訊號</button>
+  <button id="btnStart">開始廣播訊號</button>
 </div>
 
 <canvas id="canvas" width="256" height="256"></canvas>
@@ -23,21 +23,34 @@
 <script>
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const CHUNK_SIZE = 2500; // 每格畫面攜帶的字元數
+const CHUNK_SIZE = 2000; 
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
 
-function startTransmission() {
-  const file = document.getElementById('fileInput').files[0];
-  if (!file) return alert("請先選擇檔案！");
+document.getElementById('btnStart').addEventListener('click', startTransmission);
 
+function startTransmission() {
+  const fileInput = document.getElementById('fileInput');
+  if (!fileInput.files.length) return alert("請先選擇檔案！");
+
+  const file = fileInput.files[0];
   const reader = new FileReader();
-  reader.onload = (e) => {
-    const base64 = e.target.result.split(',')[1];
-    chunks = [];
+
+  reader.onload = function(e) {
+    // 使用 ArrayBuffer 處理二進位，避免 Base64 字串引發 CSP 疑慮
+    const arrayBuffer = e.target.result;
+    const uint8Array = new Uint8Array(arrayBuffer);
     
-    // 切分資料
+    // 將二進位轉換為 Base64 字串
+    let binary = '';
+    const len = uint8Array.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(uint8Array[i]);
+    }
+    const base64 = window.btoa(binary);
+
+    chunks = [];
     for (let i = 0; i < base64.length; i += CHUNK_SIZE) {
       chunks.push(base64.slice(i, i + CHUNK_SIZE));
     }
@@ -45,31 +58,29 @@ function startTransmission() {
     frameIndex = 0;
     isTransmitting = true;
     document.getElementById('status').textContent = `總影格數：${chunks.length}，傳輸中...`;
+    
     playNextFrame();
   };
-  reader.readAsDataURL(file);
+
+  reader.readAsArrayBuffer(file);
 }
 
 function playNextFrame() {
   if (!isTransmitting) return;
 
   const data = chunks[frameIndex];
-  // 檔頭資訊：[目前頁碼(4位)] + [總頁碼(4位)] + [資料]
   const header = String(frameIndex).padStart(4, '0') + String(chunks.length).padStart(4, '0');
   const payload = header + data;
 
-  // 繪製黑白點陣圖 (每點代表 1 位元)
   ctx.fillStyle = "black";
   ctx.fillRect(0, 0, 256, 256);
   ctx.fillStyle = "white";
 
-  // 先轉為 ASCII 二進位字串
   let binaryStr = "";
   for (let i = 0; i < payload.length; i++) {
     binaryStr += payload.charCodeAt(i).toString(2).padStart(8, '0');
   }
 
-  // 將 Bit 繪製至 256x256 的 Canvas 上 (每像素代表 1 bit)
   for (let i = 0; i < binaryStr.length; i++) {
     if (binaryStr[i] === '1') {
       const x = i % 256;
@@ -79,8 +90,11 @@ function playNextFrame() {
   }
 
   frameIndex = (frameIndex + 1) % chunks.length;
-  // 控制幀率（約每秒 15~20 頁，可依顯卡與辨識率微調）
-  setTimeout(() => requestAnimationFrame(playNextFrame), 50);
+
+  // 使用「函式引用」傳給 setTimeout，絕不使用字串，完全合規 CSP
+  setTimeout(function() {
+    requestAnimationFrame(playNextFrame);
+  }, 50);
 }
 </script>
 </body>
