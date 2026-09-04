@@ -2,29 +2,49 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>RBI Optical Sender</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RBI 光學傳送端 (File Streaming Sender)</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #000; color: #fff; font-family: monospace; padding: 20px; text-align: center; }
-        #matrixContainer { display: flex; justify-content: center; margin: 20px 0; }
-        canvas { background: #000; border: 4px solid #333; image-rendering: pixelated; }
-        .controls { margin-top: 15px; display: flex; justify-content: center; gap: 10px; }
-        textarea { width: 80%; height: 80px; background: #111; color: #00ff00; border: 1px solid #444; padding: 10px; }
-        button { padding: 10px 20px; background: #00ffcc; border: none; font-weight: bold; cursor: pointer; }
+        body { background: #121212; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        h2 { color: #00ffcc; margin-bottom: 15px; }
+        .canvas-container { position: relative; background: #000; padding: 10px; border-radius: 8px; border: 2px solid #333; }
+        canvas { background: #000; image-rendering: pixelated; display: block; }
+        .controls { width: 100%; max-width: 532px; background: #1e1e1e; margin-top: 15px; padding: 15px; border-radius: 8px; border: 1px solid #333; }
+        .file-input-group { margin-bottom: 12px; }
+        input[type="file"] { display: none; }
+        .custom-file-upload { display: inline-block; padding: 8px 16px; background: #2a2a2a; border: 1px solid #00ffcc; color: #00ffcc; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; text-align: center; }
+        .custom-file-upload:hover { background: #00ffcc; color: #000; }
+        .btn-group { display: flex; gap: 10px; margin-top: 10px; }
+        button { flex: 1; padding: 10px; background: #00ffcc; border: none; color: #000; font-weight: bold; border-radius: 4px; cursor: pointer; }
+        button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        .status-box { margin-top: 10px; font-family: monospace; font-size: 0.85rem; color: #aaa; background: #111; padding: 8px; border-radius: 4px; }
+        .progress-bar { width: 100%; background: #333; height: 10px; border-radius: 5px; margin-top: 8px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: #00ffcc; transition: width 0.1s; }
     </style>
 </head>
 <body>
 
-    <h2>RBI 傳送端 (Sender - Inside RBI)</h2>
-    <div id="matrixContainer">
+    <h2>RBI 光學檔案傳送端 (Sender)</h2>
+
+    <div class="canvas-container">
         <canvas id="txCanvas" width="512" height="512"></canvas>
     </div>
 
-    <textarea id="dataInput" placeholder="輸入要傳出 RBI 的資料...">Text sent from Remote Browser Isolation (RBI) environment via Optical Color Matrix.</textarea>
-    
     <div class="controls">
-        <button id="sendBtn">開始光學廣播</button>
-        <button id="fullScreenBtn">全螢幕切換 (避免 RBI 邊框干擾)</button>
+        <div class="file-input-group">
+            <label for="fileInput" class="custom-file-upload" id="fileLabel">📁 選擇要傳送的檔案</label>
+            <input type="file" id="fileInput">
+        </div>
+
+        <div class="btn-group">
+            <button id="startBtn" disabled>開始光學傳送</button>
+            <button id="stopBtn" disabled style="background:#ff5555; color:#fff;">停止</button>
+            <button id="fullScreenBtn" style="background:#333; color:#fff;">全螢幕</button>
+        </div>
+
+        <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+        <div id="statusText" class="status-box">請選擇檔案以準備傳送...</div>
     </div>
 
 <script>
@@ -33,55 +53,142 @@
     const ctx = canvas.getContext('2d');
     const CELL_SIZE = canvas.width / GRID_SIZE;
 
-    let clockState = 0; // 0: Black, 1: White
+    // 可用於傳送 Payload 的色塊數量 (總 256 個扣除 4 角標)
+    const DATA_CELLS_PER_FRAME = (GRID_SIZE * GRID_SIZE) - 4; // 252 色塊
+    
+    // Header 結構佔據前 8 個 Data Cell：
+    // [0..1]: Magic Key (0x46, 0x49 = "FI")
+    // [2..3]: Sequence Number (UINT16)
+    // [4..5]: Total Frames (UINT16)
+    // [6]: Payload Length in this frame (UINT8)
+    // [7]: Reserved / Checksum
+    const HEADER_SIZE = 8;
+    const PAYLOAD_PER_FRAME = DATA_CELLS_PER_FRAME - HEADER_SIZE; // 244 Bytes/Frame
+
+    let fileBuffer = null;
+    let fileName = "";
+    let totalFrames = 0;
+    let currentFrameIdx = 0;
+    let clockState = 0;
     let timer = null;
 
-    function renderFrame(payloadBytes) {
+    const fileInput = document.getElementById('fileInput');
+    const fileLabel = document.getElementById('fileLabel');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusText = document.getElementById('statusText');
+    const progressFill = document.getElementById('progressFill');
+
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        fileName = file.name;
+        fileLabel.innerText = `📄 ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            fileBuffer = new Uint8Array(evt.target.result);
+            
+            // 將檔名加到檔案內容最前方（包含 1 Byte 檔名長度標示）
+            const nameBytes = new TextEncoder().encode(fileName);
+            const metaBuffer = new Uint8Array(1 + nameBytes.length + fileBuffer.length);
+            metaBuffer[0] = nameBytes.length;
+            metaBuffer.set(nameBytes, 1);
+            metaBuffer.set(fileBuffer, 1 + nameBytes.length);
+            
+            fileBuffer = metaBuffer; // 更新為包含 Metadata 的完整 Buffer
+            totalFrames = Math.ceil(fileBuffer.length / PAYLOAD_PER_FRAME);
+            
+            startBtn.disabled = false;
+            statusText.innerText = `檔案載入完成。總大小: ${fileBuffer.length} B，預計切為 ${totalFrames} 幀。`;
+            
+            // 繪製第一幀預覽
+            currentFrameIdx = 0;
+            renderFrame(currentFrameIdx);
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    function renderFrame(frameIdx) {
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        let byteIdx = 0;
+        // 建立 Frame 資料區塊 (Header + Payload)
+        const frameData = new Uint8Array(DATA_CELLS_PER_FRAME);
+        
+        // 1. Header 填入
+        frameData[0] = 0x46; // 'F'
+        frameData[1] = 0x49; // 'I'
+        frameData[2] = (frameIdx >> 8) & 0xFF;
+        frameData[3] = frameIdx & 0xFF;
+        frameData[4] = (totalFrames >> 8) & 0xFF;
+        frameData[5] = totalFrames & 0xFF;
+
+        const offset = frameIdx * PAYLOAD_PER_FRAME;
+        const chunk = fileBuffer.subarray(offset, offset + PAYLOAD_PER_FRAME);
+        frameData[6] = chunk.length; // 當前 Payload 實際長度
+        frameData[7] = 0x00; // 保留
+
+        // 2. Payload 填入
+        frameData.set(chunk, HEADER_SIZE);
+
+        let dataIdx = 0;
 
         for (let row = 0; row < GRID_SIZE; row++) {
             for (let col = 0; col < GRID_SIZE; col++) {
                 const x = col * CELL_SIZE;
                 const y = row * CELL_SIZE;
 
-                // 1. 定位與校正標記 (4角 Anchor)
+                // 四角固定標記 (Anchor)
                 if (row === 0 && col === 0) {
-                    ctx.fillStyle = 'rgb(255, 0, 0)'; // 左上: 純紅
+                    ctx.fillStyle = 'rgb(255, 0, 0)'; // 左上: 紅
                 } else if (row === 0 && col === GRID_SIZE - 1) {
-                    ctx.fillStyle = 'rgb(0, 255, 0)'; // 右上: 純綠
+                    ctx.fillStyle = 'rgb(0, 255, 0)'; // 右上: 綠
                 } else if (row === GRID_SIZE - 1 && col === 0) {
-                    ctx.fillStyle = 'rgb(0, 0, 255)'; // 左下: 純藍
+                    ctx.fillStyle = 'rgb(0, 0, 255)'; // 左下: 藍
                 } else if (row === GRID_SIZE - 1 && col === GRID_SIZE - 1) {
-                    // 右下: Clock Sync 閃爍訊號 (用於防重複採樣)
+                    // 右下: Clock Sync 閃爍信號
                     ctx.fillStyle = clockState ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)';
                 } else {
-                    // 2. 資料色塊填充 (灰階對應)
-                    if (byteIdx < payloadBytes.length) {
-                        const val = payloadBytes[byteIdx++];
-                        ctx.fillStyle = `rgb(${val}, ${val}, ${val})`;
-                    } else {
-                        ctx.fillStyle = 'rgb(0, 0, 0)';
-                    }
+                    // 資料區塊 (灰階直映)
+                    const val = dataIdx < frameData.length ? frameData[dataIdx++] : 0;
+                    ctx.fillStyle = `rgb(${val}, ${val}, ${val})`;
                 }
                 ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
             }
         }
     }
 
-    document.getElementById('sendBtn').addEventListener('click', () => {
-        if (timer) clearInterval(timer);
+    startBtn.addEventListener('click', () => {
+        if (!fileBuffer) return;
 
-        const text = document.getElementById('dataInput').value;
-        const bytes = new TextEncoder().encode(text);
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        currentFrameIdx = 0;
 
-        // 每 100ms 切換 Clock 狀態，對應約 10 FPS（可抵禦 RBI 視訊延遲與掉幀）
+        // 每 120ms 切換一幀 (可順暢通過 RBI WebRTC 視覺壓縮)
         timer = setInterval(() => {
             clockState = clockState === 0 ? 1 : 0;
-            renderFrame(bytes);
-        }, 100);
+            renderFrame(currentFrameIdx);
+
+            const pct = (((currentFrameIdx + 1) / totalFrames) * 100).toFixed(1);
+            progressFill.style.width = `${pct}%`;
+            statusText.innerText = `傳送中: 幀 [${currentFrameIdx + 1}/${totalFrames}] (${pct}%)`;
+
+            currentFrameIdx++;
+            if (currentFrameIdx >= totalFrames) {
+                // 循環廣播或停止 (這裡設為循環廣播，確保接收端即使掉幀也能補抓)
+                currentFrameIdx = 0;
+            }
+        }, 120);
+    });
+
+    stopBtn.addEventListener('click', () => {
+        if (timer) clearInterval(timer);
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        statusText.innerText = "傳送已停止。";
     });
 
     document.getElementById('fullScreenBtn').addEventListener('click', () => {
@@ -91,9 +198,6 @@
             document.exitFullscreen();
         }
     });
-
-    // 初始化渲染預設畫面
-    renderFrame(new TextEncoder().encode("RBI Data Transfer Initialized"));
 </script>
 </body>
 </html>
