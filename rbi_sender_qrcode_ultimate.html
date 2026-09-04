@@ -2,42 +2,54 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>宇宙極速 QR Code 傳送端</title>
+  <title>4X 宮格超光速傳送端</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
-    body { font-family: sans-serif; background: #050505; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    #canvas-container { padding: 12px; background: #fff; border-radius: 6px; box-shadow: 0 0 20px rgba(0,255,0,0.2); }
+    body { font-family: sans-serif; background: #000; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .grid { display: grid; grid-template-columns: 180px 180px; gap: 10px; padding: 10px; background: #fff; border-radius: 8px; }
+    .qr-box { width: 180px; height: 180px; }
     .controls { margin-bottom: 15px; }
-    button { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 16px; }
-    #hidden-qr { display: none; }
+    button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button id="btnStart">啟動超光速廣播</button>
+  <button id="btnStart">啟動 4 通道矩陣噴射</button>
 </div>
 
-<div id="canvas-container">
-  <canvas id="displayCanvas" width="360" height="360"></canvas>
+<div class="grid">
+  <canvas id="c0" width="180" height="180"></canvas>
+  <canvas id="c1" width="180" height="180"></canvas>
+  <canvas id="c2" width="180" height="180"></canvas>
+  <canvas id="c3" width="180" height="180"></canvas>
 </div>
 
-<div id="hidden-qr"></div>
-<div id="status" style="margin-top: 15px; font-weight: bold; font-size: 18px; color: #00ff00;">等待檔案...</div>
+<div id="q0" class="hidden"></div>
+<div id="q1" class="hidden"></div>
+<div id="q2" class="hidden"></div>
+<div id="q3" class="hidden"></div>
+
+<div id="status" style="margin-top: 15px; font-weight: bold; color: #00ff00;">等待啟動...</div>
 
 <script>
-const hiddenContainer = document.getElementById('hidden-qr');
-const displayCanvas = document.getElementById('displayCanvas');
-const ctx = displayCanvas.getContext('2d');
+const qrs = [
+  new QRCode(document.getElementById('q0'), { width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }),
+  new QRCode(document.getElementById('q1'), { width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }),
+  new QRCode(document.getElementById('q2'), { width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }),
+  new QRCode(document.getElementById('q3'), { width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L })
+];
 
-const qrcode = new QRCode(hiddenContainer, { 
-  width: 360, 
-  height: 360, 
-  correctLevel: QRCode.CorrectLevel.L 
-});
+const canvases = [
+  document.getElementById('c0').getContext('2d'),
+  document.getElementById('c1').getContext('2d'),
+  document.getElementById('c2').getContext('2d'),
+  document.getElementById('c3').getContext('2d')
+];
 
-const CHUNK_SIZE = 220; // 最佳容量密度比
+const CHUNK_SIZE = 250; // 單條碼精準 Byte 容納量
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
@@ -46,27 +58,27 @@ document.getElementById('btnStart').addEventListener('click', startTransmission)
 
 function startTransmission() {
   const fileInput = document.getElementById('fileInput');
-  if (!fileInput.files.length) return alert("請先選擇檔案！");
+  if (!fileInput.files.length) return alert("請選擇檔案！");
 
   const file = fileInput.files[0];
   const reader = new FileReader();
 
   reader.onload = function(e) {
     const uint8Array = new Uint8Array(e.target.result);
+    // 使用 Latin-1 保留原始 Byte 資料，免除 Base64 膨脹
     let binary = '';
     for (let i = 0; i < uint8Array.byteLength; i++) {
       binary += String.fromCharCode(uint8Array[i]);
     }
-    const base64 = window.btoa(binary);
 
     chunks = [];
-    for (let i = 0; i < base64.length; i += CHUNK_SIZE) {
-      chunks.push(base64.slice(i, i + CHUNK_SIZE));
+    for (let i = 0; i < binary.length; i += CHUNK_SIZE) {
+      chunks.push(binary.slice(i, i + CHUNK_SIZE));
     }
     
     frameIndex = 0;
     isTransmitting = true;
-    document.getElementById('status').textContent = `總影格數：${chunks.length}，60 FPS 高頻傳輸中...`;
+    document.getElementById('status').textContent = `總影格切片：${chunks.length}，4 通道全速廣播中...`;
     
     playFrame();
   };
@@ -77,23 +89,31 @@ function startTransmission() {
 function playFrame() {
   if (!isTransmitting) return;
 
-  const data = chunks[frameIndex];
-  // 精簡 Header，節省 QR 容量 (格式: 0001/0050|data)
-  const header = String(frameIndex).padStart(4, '0') + '/' + String(chunks.length).padStart(4, '0') + '|';
-  const payload = header + data;
+  for (let ch = 0; ch < 4; ch++) {
+    const idx = frameIndex + ch;
+    if (idx < chunks.length) {
+      const header = String(idx).padStart(5, '0') + '/' + String(chunks.length).padStart(5, '0') + '|';
+      const payload = header + chunks[idx];
 
-  qrcode.clear();
-  qrcode.makeCode(payload);
+      qrs[ch].clear();
+      qrs[ch].makeCode(payload);
 
-  // 利用 requestAnimationFrame 與零延遲複製進行極速繪製
-  setTimeout(() => {
-    const img = hiddenContainer.querySelector('img');
-    if (img && img.complete) {
-      ctx.drawImage(img, 0, 0, 360, 360);
-      frameIndex = (frameIndex + 1) % chunks.length;
+      const img = document.getElementById(`q${ch}`).querySelector('img');
+      if (img && img.complete) {
+        canvases[ch].drawImage(img, 0, 0, 180, 180);
+      }
+    } else {
+      canvases[ch].fillStyle = "#FFF";
+      canvases[ch].fillRect(0,0,180,180);
     }
+  }
+
+  frameIndex += 4;
+  if (frameIndex >= chunks.length) frameIndex = 0;
+
+  setTimeout(() => {
     requestAnimationFrame(playFrame);
-  }, 25); // 約 40 FPS 極速刷新
+  }, 20); // 50 FPS 極速刷新
 }
 </script>
 </body>
