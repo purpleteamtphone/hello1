@@ -2,10 +2,11 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>極速像素光學傳送端</title>
+  <title>極速 QR Code 傳送端</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
-    body { background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    canvas { border: 10px solid #FF0000; background: #000; image-rendering: pixelated; }
+    body { font-family: sans-serif; background: #111; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    #qrcode { padding: 15px; background: white; border-radius: 8px; }
     .controls { margin-bottom: 15px; }
     button { padding: 8px 16px; background: #008cba; color: white; border: none; cursor: pointer; font-weight: bold; }
   </style>
@@ -14,16 +15,22 @@
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button id="btnStart">開始像素廣播</button>
+  <button id="btnStart">開始極速廣播</button>
 </div>
 
-<canvas id="canvas" width="34" height="34" style="width: 340px; height: 340px;"></canvas>
+<div id="qrcode"></div>
 <div id="status" style="margin-top: 15px;">請選擇檔案...</div>
 
 <script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const CHUNK_SIZE = 120; // 降低每張單容量，確保像素點極大化
+const qrcodeContainer = document.getElementById('qrcode');
+// 使用低容錯率 (Level L) 以換取極簡圖案與極高辨識速
+let qrcode = new QRCode(qrcodeContainer, { 
+  width: 320, 
+  height: 320, 
+  correctLevel: QRCode.CorrectLevel.L 
+});
+
+const CHUNK_SIZE = 180; // 適中容量：圖案稀疏、讀取極快
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
@@ -49,10 +56,10 @@ function startTransmission() {
     for (let i = 0; i < base64.length; i += CHUNK_SIZE) {
       chunks.push(base64.slice(i, i + CHUNK_SIZE));
     }
-
+    
     frameIndex = 0;
     isTransmitting = true;
-    document.getElementById('status').textContent = `總影格數：${chunks.length}，廣播中...`;
+    document.getElementById('status').textContent = `總影格數：${chunks.length}，極速廣播中...`;
     
     playNextFrame();
   };
@@ -67,39 +74,14 @@ function playNextFrame() {
   const header = String(frameIndex).padStart(4, '0') + String(chunks.length).padStart(4, '0');
   const payload = header + data;
 
-  // 清空背景
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, 34, 34);
-
-  // 四角繪製白色定位標記 (Finder Pattern)
-  ctx.fillStyle = "#FFFFFF";
-  ctx.fillRect(0, 0, 1, 1);
-  ctx.fillRect(33, 0, 1, 1);
-  ctx.fillRect(0, 33, 1, 1);
-  ctx.fillRect(33, 33, 1, 1);
-
-  // 轉換位元資料
-  let bitStr = "";
-  for (let i = 0; i < payload.length; i++) {
-    bitStr += payload.charCodeAt(i).toString(2).padStart(8, '0');
-  }
-
-  // 繪製點陣 (中央 32x32 網格)
-  for (let y = 0; y < 32; y++) {
-    for (let x = 0; x < 32; x++) {
-      const idx = y * 32 + x;
-      if (idx < bitStr.length) {
-        ctx.fillStyle = bitStr[idx] === '1' ? '#FFFFFF' : '#000000';
-        ctx.fillRect(x + 1, y + 1, 1, 1);
-      }
-    }
-  }
+  qrcode.clear();
+  qrcode.makeCode(payload);
 
   frameIndex = (frameIndex + 1) % chunks.length;
 
   setTimeout(function() {
     requestAnimationFrame(playNextFrame);
-  }, 100); // 10 FPS 確保精準捕捉
+  }, 60); // 16 FPS 極速播放
 }
 </script>
 </body>
