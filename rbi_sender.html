@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>RBI 傳送端 (Sender)</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f0f2f5; }
+    .card { max-width: 480px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    button { width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+    button:hover { background: #218838; }
+    #log { margin-top: 15px; color: #555; font-size: 14px; word-break: break-all; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2>傳送端 (RBI 遠端環境)</h2>
+  <p>選擇檔案或將 Byte 資料載入記憶體，轉為 Base64 並傳送至剪貼簿。</p>
+  
+  <input type="file" id="fileInput">
+  <button onclick="processAndSend()">打包並寫入剪貼簿</button>
+
+  <div id="log"></div>
+</div>
+
+<script>
+function processAndSend() {
+  const fileInput = document.getElementById('fileInput');
+  const logEl = document.getElementById('log');
+
+  if (!fileInput.files.length) {
+    alert('請先選擇一個檔案進行測試！');
+    return;
+  }
+
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+
+  logEl.textContent = '讀取檔案並編碼中...';
+
+  reader.onload = function(e) {
+    // 1. 取得 Base64 字串
+    const base64Data = e.target.result.split(',')[1];
+    
+    // 2. 封裝傳輸協定標頭 (包含副檔名標註)
+    const payload = 'TRANSFER_DATA:' + base64Data;
+
+    // 3. 寫入系統剪貼簿 (跨越 RBI 容器)
+    navigator.clipboard.writeText(payload)
+      .then(() => {
+        logEl.style.color = 'green';
+        logEl.textContent = `成功！已寫入剪貼簿 (${file.size} bytes)。請切換至本機接收頁面。`;
+      })
+      .catch(err => {
+        logEl.style.color = 'red';
+        logEl.textContent = '寫入剪貼簿失敗：' + err.message;
+      });
+  };
+
+  reader.readAsDataURL(file);
+}
+</script>
+
+</body>
+</html>
