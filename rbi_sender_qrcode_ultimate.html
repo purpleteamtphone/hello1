@@ -2,11 +2,10 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>Code128 極速純文字傳送端</title>
-  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <title>RGB 色彩光學極速傳送端</title>
   <style>
     body { background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .barcode-box { background: #fff; padding: 20px; border-radius: 8px; }
+    canvas { background: #000; border: 4px solid #fff; }
     .controls { margin-bottom: 20px; }
     button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; font-size: 16px; border-radius: 4px; }
   </style>
@@ -15,18 +14,24 @@
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button id="btnStart">啟動 Code128 光學字串流</button>
+  <button id="btnStart">啟動 RGB 矩陣全速噴射</button>
 </div>
 
-<div class="barcode-box">
-  <svg id="barcode"></svg>
-</div>
+<canvas id="matrixCanvas" width="400" height="400"></canvas>
 
 <div id="status" style="margin-top: 15px; font-size: 18px; color: #00ff00; font-weight: bold;">等待檔案...</div>
 
 <script>
-const CHUNK_SIZE = 60; // 60 字元單條碼，條線清晰度最高、解碼速度最快
-let chunks = [];
+const canvas = document.getElementById('matrixCanvas');
+const ctx = canvas.getContext('2d');
+
+// 16x16 個色塊，每個影格直接塞 256 Bytes（無 Base64 膨脹，純原生 Byte）
+const GRID_SIZE = 16;
+const BLOCK_SIZE = 400 / GRID_SIZE;
+const CHUNK_SIZE = GRID_SIZE * GRID_SIZE - 4; // 預留 4 格做 Header
+
+let fileBytes = null;
+let totalChunks = 0;
 let frameIndex = 0;
 let isTransmitting = false;
 
@@ -40,21 +45,12 @@ function startTransmission() {
   const reader = new FileReader();
 
   reader.onload = function(e) {
-    const uint8Array = new Uint8Array(e.target.result);
-    let binary = '';
-    for (let i = 0; i < uint8Array.byteLength; i++) {
-      binary += String.fromCharCode(uint8Array[i]);
-    }
-    const base64Data = window.btoa(binary);
-
-    chunks = [];
-    for (let i = 0; i < base64Data.length; i += CHUNK_SIZE) {
-      chunks.push(base64Data.slice(i, i + CHUNK_SIZE));
-    }
+    fileBytes = new Uint8Array(e.target.result);
+    totalChunks = Math.ceil(fileBytes.length / CHUNK_SIZE);
     
     frameIndex = 0;
     isTransmitting = true;
-    document.getElementById('status').textContent = `總條碼數：${chunks.length}，Code128 高頻廣播中...`;
+    document.getElementById('status').textContent = `總色塊影格：${totalChunks}，RGB 色彩陣列噴射中...`;
     
     playFrame();
   };
@@ -65,25 +61,45 @@ function startTransmission() {
 function playFrame() {
   if (!isTransmitting) return;
 
-  const data = chunks[frameIndex];
-  // Header 格式：00001/00100|payload
-  const payload = String(frameIndex).padStart(5, '0') + '/' + String(chunks.length).padStart(5, '0') + '|' + data;
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, 400, 400);
 
-  JsBarcode("#barcode", payload, {
-    format: "CODE128",
-    width: 2,
-    height: 120,
-    displayValue: true,
-    fontSize: 16,
-    background: "#ffffff",
-    lineColor: "#000000"
-  });
+  // 定位角標（左上角紅，右上角綠，左下角藍，方便接收端定位）
+  drawBlock(0, 0, 255, 0, 0);
+  drawBlock(15, 0, 0, 255, 0);
+  drawBlock(0, 15, 0, 0, 255);
 
-  frameIndex = (frameIndex + 1) % chunks.length;
+  // Header: 影格編號 (High & Low Byte)
+  const offset = frameIndex * CHUNK_SIZE;
+  const chunkData = fileBytes.subarray(offset, offset + CHUNK_SIZE);
+
+  drawBlock(15, 15, (frameIndex >> 8) & 0xFF, frameIndex & 0xFF, (totalChunks >> 8) & 0xFF);
+
+  let dataIdx = 0;
+  for (let y = 0; y < GRID_SIZE; y++) {
+    for (let x = 0; x < GRID_SIZE; x++) {
+      // 避開 4 個定位角標
+      if ((x===0&&y===0) || (x===15&&y===0) || (x===0&&y===15) || (x===15&&y===15)) continue;
+
+      if (dataIdx < chunkData.length) {
+        const val = chunkData[dataIdx];
+        // 單 Byte 直接轉灰階/RGB 高效色塊
+        drawBlock(x, y, val, val, val);
+        dataIdx++;
+      }
+    }
+  }
+
+  frameIndex = (frameIndex + 1) % totalChunks;
 
   setTimeout(() => {
     requestAnimationFrame(playFrame);
-  }, 25); // 約 40 FPS 刷新
+  }, 16); // 60 FPS 刷新
+}
+
+function drawBlock(x, y, r, g, b) {
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
 }
 </script>
 </body>
