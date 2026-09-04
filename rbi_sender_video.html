@@ -2,10 +2,11 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>RBI 畫面訊號傳送端 (對齊增強版)</title>
+  <title>RBI QR Code 傳送端</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
-    body { font-family: sans-serif; background: #000; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    canvas { border: 2px solid #555; background: black; image-rendering: pixelated; }
+    body { font-family: sans-serif; background: #111; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    #qrcode { padding: 15px; background: white; border-radius: 8px; }
     .controls { margin-bottom: 15px; }
     button { padding: 8px 16px; background: #008cba; color: white; border: none; cursor: pointer; }
   </style>
@@ -14,17 +15,17 @@
 
 <div class="controls">
   <input type="file" id="fileInput">
-  <button id="btnStart">開始廣播訊號</button>
+  <button id="btnStart">開始廣播 QR Code</button>
 </div>
 
-<!-- 畫布調整為 258x258 (包含 1px 紅色定位框) -->
-<canvas id="canvas" width="258" height="258"></canvas>
-<div id="status" style="margin-top: 10px;">請選擇檔案...</div>
+<div id="qrcode"></div>
+<div id="status" style="margin-top: 15px;">請選擇檔案...</div>
 
 <script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const CHUNK_SIZE = 2000; 
+const qrcodeContainer = document.getElementById('qrcode');
+let qrcode = new QRCode(qrcodeContainer, { width: 300, height: 300, correctLevel: QRCode.CorrectLevel.L });
+
+const CHUNK_SIZE = 300; // QR Code 最佳建議容量
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
@@ -55,7 +56,7 @@ function startTransmission() {
     
     frameIndex = 0;
     isTransmitting = true;
-    document.getElementById('status').textContent = `總影格數：${chunks.length}，傳輸中...`;
+    document.getElementById('status').textContent = `總影格數：${chunks.length}，廣播中...`;
     
     playNextFrame();
   };
@@ -70,35 +71,14 @@ function playNextFrame() {
   const header = String(frameIndex).padStart(4, '0') + String(chunks.length).padStart(4, '0');
   const payload = header + data;
 
-  // 清空畫布
-  ctx.fillStyle = "black";
-  ctx.fillRect(0, 0, 258, 258);
-
-  // 1. 繪製純紅色外框 (RGB: 255, 0, 0)，作為定位特徵
-  ctx.strokeStyle = "#FF0000";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0, 0, 258, 258);
-
-  // 2. 繪製黑白資料區塊 (偏移 1px)
-  ctx.fillStyle = "white";
-  let binaryStr = "";
-  for (let i = 0; i < payload.length; i++) {
-    binaryStr += payload.charCodeAt(i).toString(2).padStart(8, '0');
-  }
-
-  for (let i = 0; i < binaryStr.length; i++) {
-    if (binaryStr[i] === '1') {
-      const x = (i % 256) + 1;
-      const y = Math.floor(i / 256) + 1;
-      ctx.fillRect(x, y, 1, 1);
-    }
-  }
+  qrcode.clear();
+  qrcode.makeCode(payload);
 
   frameIndex = (frameIndex + 1) % chunks.length;
 
   setTimeout(function() {
     requestAnimationFrame(playNextFrame);
-  }, 60);
+  }, 100); // 10 FPS 播放，確保拍攝辨識率
 }
 </script>
 </body>
