@@ -1,79 +1,61 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <title>Service Worker 虛擬流式下載</title>
-  <style>
-    body { font-family: sans-serif; margin: 20px; }
-    button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
-    #status { margin-top: 15px; color: #333; }
-  </style>
-</head>
-<body>
+<script>
+  let isSwReady = false;
 
-  <h2>Service Worker 記憶體資料下載範例</h2>
-  <button id="downloadBtn" onclick="triggerServiceWorkerDownload()">下載記憶體中的 Buffer</button>
-  <div id="status">正在初始化 Service Worker...</div>
+  // 1. 註冊 Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then((registration) => {
+        document.getElementById('status').innerText = 'Service Worker 註冊成功！';
+        isSwReady = true;
+      })
+      .catch((err) => {
+        document.getElementById('status').innerText = 'Service Worker 註冊失敗: ' + err;
+      });
+  } else {
+    document.getElementById('status').innerText = '目前瀏覽器不支援 Service Worker';
+  }
 
-  <script>
-    let isSwReady = false;
+  // 2. 模擬生成記憶體資料
+  function generateSampleBuffer() {
+    const size = 1024 * 1024; // 1MB
+    const buffer = new ArrayBuffer(size);
+    const view = new Uint8Array(buffer);
+    for (let i = 0; i < size; i++) {
+      view[i] = i % 256;
+    }
+    return buffer;
+  }
 
-    // 1. 註冊 Service Worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js')
-        .then((registration) => {
-          document.getElementById('status').innerText = 'Service Worker 註冊成功！';
-          isSwReady = true;
-        })
-        .catch((err) => {
-          document.getElementById('status').innerText = 'Service Worker 註冊失敗: ' + err;
-        });
-    } else {
-      document.getElementById('status').innerText = '目前瀏覽器不支援 Service Worker';
+  // 3. 觸發 Response 取回流程（不觸發檔案下載行為）
+  async function triggerServiceWorkerFetch() {
+    if (!isSwReady || !navigator.serviceWorker.controller) {
+      alert('Service Worker 尚未準備就緒，請重新整理頁面再試');
+      return;
     }
 
-    // 2. 模擬生成或讀取記憶體資料 (ArrayBuffer)
-    function generateSampleBuffer() {
-      const size = 1024 * 1024; // 1MB 範例資料
-      const buffer = new ArrayBuffer(size);
-      const view = new Uint8Array(buffer);
-      for (let i = 0; i < size; i++) {
-        view[i] = i % 256;
+    document.getElementById('status').innerText = '正在將 Buffer 傳送給 Service Worker...';
+
+    const sampleBuffer = generateSampleBuffer();
+    const channel = new MessageChannel();
+
+    channel.port1.onmessage = async (event) => {
+      if (event.data.status === 'READY') {
+        document.getElementById('status').innerText = '資料已就緒，經由 Fetch 讀取內文...';
+
+        // 使用 fetch 存取 Service Worker 攔截的虛擬路由
+        // 這是一個純 HTTP 請求，不會改變視窗位置、不會觸發瀏覽器下載框
+        const response = await fetch('./virtual-download');
+        const downloadedBuffer = await response.arrayBuffer();
+
+        document.getElementById('status').innerText = `已成功接收純數據，大小為: ${downloadedBuffer.byteLength} bytes (無觸發下載行為)`;
       }
-      return buffer;
-    }
+    };
 
-    // 3. 觸發下載流程
-    async function triggerServiceWorkerDownload() {
-      if (!isSwReady || !navigator.serviceWorker.controller) {
-        alert('Service Worker 尚未準備就緒，請重新整理頁面再試');
-        return;
-      }
-
-      document.getElementById('status').innerText = '正在將 Buffer 傳送給 Service Worker...';
-
-      const sampleBuffer = generateSampleBuffer();
-      const channel = new MessageChannel();
-
-      // 接收 Service Worker 的確認回應
-      channel.port1.onmessage = (event) => {
-        if (event.data.status === 'READY') {
-          document.getElementById('status').innerText = '資料已傳送，觸發下載中...';
-          
-          // 導向虛擬路由，觸發 Service Worker 攔截並下載
-          window.location.href = './virtual-download';
-        }
-      };
-
-      // 將 ArrayBuffer 轉移給 Service Worker (利用 Transferable Objects 避免複製開銷)
-      navigator.serviceWorker.controller.postMessage({
-        type: 'SET_BUFFER',
-        buffer: sampleBuffer,
-        filename: 'demo_data.bin',
-        mimeType: 'application/octet-stream'
-      }, [channel.port2], [sampleBuffer]);
-    }
-  </script>
-
-</body>
-</html>
+    // 將 ArrayBuffer 轉移給 Service Worker
+    navigator.serviceWorker.controller.postMessage({
+      type: 'SET_BUFFER',
+      buffer: sampleBuffer,
+      mimeType: 'application/octet-stream'
+    }, [channel.port2], [sampleBuffer]);
+  }
+</script>
