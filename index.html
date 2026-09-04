@@ -1,61 +1,139 @@
-<script>
-  let isSwReady = false;
-
-  // 1. 註冊 Service Worker
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
-      .then((registration) => {
-        document.getElementById('status').innerText = 'Service Worker 註冊成功！';
-        isSwReady = true;
-      })
-      .catch((err) => {
-        document.getElementById('status').innerText = 'Service Worker 註冊失敗: ' + err;
-      });
-  } else {
-    document.getElementById('status').innerText = '目前瀏覽器不支援 Service Worker';
-  }
-
-  // 2. 模擬生成記憶體資料
-  function generateSampleBuffer() {
-    const size = 1024 * 1024; // 1MB
-    const buffer = new ArrayBuffer(size);
-    const view = new Uint8Array(buffer);
-    for (let i = 0; i < size; i++) {
-      view[i] = i % 256;
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>RBI Safe Storage Demo</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      line-height: 1.6;
     }
-    return buffer;
-  }
+    button {
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    #status {
+      margin-top: 15px;
+      font-weight: bold;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
 
-  // 3. 觸發 Response 取回流程（不觸發檔案下載行為）
-  async function triggerServiceWorkerFetch() {
-    if (!isSwReady || !navigator.serviceWorker.controller) {
-      alert('Service Worker 尚未準備就緒，請重新整理頁面再試');
-      return;
+  <h2>RBI 避檢測：純記憶體傳輸與 File System API 存檔範例</h2>
+  <button id="btn-process" onclick="processAndSave()">1. 取得資料並另存新檔</button>
+  <div id="status">準備就緒</div>
+
+  <script>
+    let isSwReady = false;
+
+    // 1. 註冊 Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js')
+        .then((registration) => {
+          document.getElementById('status').innerText = 'Service Worker 註冊成功！';
+          isSwReady = true;
+        })
+        .catch((err) => {
+          document.getElementById('status').innerText = 'Service Worker 註冊失敗: ' + err;
+        });
+    } else {
+      document.getElementById('status').innerText = '目前瀏覽器不支援 Service Worker';
     }
 
-    document.getElementById('status').innerText = '正在將 Buffer 傳送給 Service Worker...';
-
-    const sampleBuffer = generateSampleBuffer();
-    const channel = new MessageChannel();
-
-    channel.port1.onmessage = async (event) => {
-      if (event.data.status === 'READY') {
-        document.getElementById('status').innerText = '資料已就緒，經由 Fetch 讀取內文...';
-
-        // 使用 fetch 存取 Service Worker 攔截的虛擬路由
-        // 這是一個純 HTTP 請求，不會改變視窗位置、不會觸發瀏覽器下載框
-        const response = await fetch('./virtual-download');
-        const downloadedBuffer = await response.arrayBuffer();
-
-        document.getElementById('status').innerText = `已成功接收純數據，大小為: ${downloadedBuffer.byteLength} bytes (無觸發下載行為)`;
+    // 2. 模擬生成記憶體資料 (1MB ArrayBuffer)
+    function generateSampleBuffer() {
+      const size = 1024 * 1024; // 1MB
+      const buffer = new ArrayBuffer(size);
+      const view = new Uint8Array(buffer);
+      for (let i = 0; i < size; i++) {
+        view[i] = i % 256;
       }
-    };
+      return buffer;
+    }
 
-    // 將 ArrayBuffer 轉移給 Service Worker
-    navigator.serviceWorker.controller.postMessage({
-      type: 'SET_BUFFER',
-      buffer: sampleBuffer,
-      mimeType: 'application/octet-stream'
-    }, [channel.port2], [sampleBuffer]);
-  }
-</script>
+    // 3. 核心處理與儲存流程
+    async function processAndSave() {
+      if (!isSwReady || !navigator.serviceWorker.controller) {
+        alert('Service Worker 尚未準備就緒，請重新整理頁面再試');
+        return;
+      }
+
+      document.getElementById('status').innerText = '正在將 Buffer 轉移給 Service Worker...';
+
+      const sampleBuffer = generateSampleBuffer();
+      const channel = new MessageChannel();
+
+      // 接收 Service Worker 的確認回應
+      channel.port1.onmessage = async (event) => {
+        if (event.data.status === 'READY') {
+          try {
+            document.getElementById('status').innerText = '透過 fetch 讀取純數據 Response...';
+
+            // 經由一般 HTTP Fetch 取得內容，完全無下載標頭與視窗導向
+            const response = await fetch('./virtual-download');
+            if (!response.ok) throw new Error('Fetch 失敗');
+
+            const dataBuffer = await response.arrayBuffer();
+
+            document.getElementById('status').innerText = '資料已存入記憶體，準備開啟另存新檔視窗...';
+
+            // 呼叫 File System Access API 將資料寫入硬碟
+            await saveBufferToDisk(dataBuffer, 'demo_data.bin');
+
+          } catch (err) {
+            document.getElementById('status').innerText = '處理過程發生錯誤: ' + err.message;
+            console.error(err);
+          }
+        }
+      };
+
+      // 利用 Transferable Objects 將 Buffer 轉移給 SW
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SET_BUFFER',
+        buffer: sampleBuffer,
+        mimeType: 'application/octet-stream'
+      }, [channel.port2], [sampleBuffer]);
+    }
+
+    // 4. 使用 File System Access API 儲存至本機
+    async function saveBufferToDisk(buffer, defaultName = 'demo_data.bin') {
+      // 檢查瀏覽器是否支援 showSaveFilePicker API
+      if (!('showSaveFilePicker' in window)) {
+        alert('您的瀏覽器不支援 File System Access API，無法使用此方式存檔。');
+        return;
+      }
+
+      try {
+        // 跳出作業系統原生的「另存新檔」對話框
+        const handle = await window.showSaveFilePicker({
+          suggestedName: defaultName,
+          types: [{
+            description: 'Binary Data',
+            accept: { 'application/octet-stream': ['.bin', '.dat'] },
+          }],
+        });
+
+        // 建立檔案寫入串流並直接輸出
+        const writable = await handle.createWritable();
+        await writable.write(buffer);
+        await writable.close();
+
+        document.getElementById('status').innerText = `檔案已成功寫入硬碟！(大小: ${buffer.byteLength} bytes)`;
+      } catch (err) {
+        // 使用者主動取消選擇視窗時會發出 AbortError，無須當作錯誤處理
+        if (err.name === 'AbortError') {
+          document.getElementById('status').innerText = '使用者已取消存檔。';
+        } else {
+          document.getElementById('status').innerText = '寫入檔案失敗: ' + err.message;
+          console.error('Save File Error:', err);
+        }
+      }
+    }
+  </script>
+</body>
+</html>
