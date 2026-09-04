@@ -2,50 +2,35 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>檔案動態下載</title>
+  <title>ArrayBuffer Fetch 範例</title>
 </head>
 <body>
 
-  <h2>GitHub Pages 動態下載範例</h2>
-  
-  <!-- 觸發下載的連結與按鈕 -->
-  <a href="#" onclick="downloadPayload(event)">點擊下載 7-Zip 安裝檔</a>
+  <h2>資料載入中...</h2>
 
   <script>
-    async function downloadPayload(event) {
-      if (event) event.preventDefault();
-
-      // 目標檔案的 Raw URL
+    async function fetchDataBuffer() {
       const fileUrl = 'https://raw.githubusercontent.com/purpleteamtphone/hello1/refs/heads/main/7z2602-x64.exe';
 
       try {
-        // 1. 跨域 Fetch 二進位檔案
+        // 1. 取得 Response 物件
         const response = await fetch(fileUrl);
-        if (!response.ok) throw new Error('檔案讀取失敗');
+        if (!response.ok) throw new Error(`HTTP 錯誤！狀態碼: ${response.status}`);
 
+        // 2. 解析為 ArrayBuffer (在記憶體中持有原始二進位資料)
         const buffer = await response.arrayBuffer();
 
-        // 2. 在記憶體中建立 Blob 物件
-        const blob = new Blob([buffer], { type: 'application/octet-stream' });
+        console.log('ArrayBuffer 讀取成功，位元組長度:', buffer.byteLength);
 
-        // 3. 動態建立 DOM 觸發下載
-        const link = document.createElement('a');
-        const objectUrl = URL.createObjectURL(blob);
-        link.href = objectUrl;
+        // 這裡可對 buffer 進行後續記憶體處理（例如 DataView 讀取、WebAssembly 傳遞或二進位運算）
         
-        // 設定客戶端儲存的檔名
-        link.download = 'hello';
-
-        document.body.appendChild(link);
-        link.click();
-
-        // 4. 清理 DOM 並釋放記憶體
-        document.body.removeChild(link);
-        URL.revokeObjectURL(objectUrl);
       } catch (error) {
-        console.error('下載過程發生錯誤:', error);
+        console.error('Fetch 過程發生錯誤:', error);
       }
     }
+
+    // 網頁 DOM 載入完成時自動觸發
+    window.addEventListener('DOMContentLoaded', fetchDataBuffer);
   </script>
 
 </body>
