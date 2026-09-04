@@ -2,15 +2,14 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>4X 宮格超光速傳送端</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <title>4X 宮格超光速傳送端 (Fixed)</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <style>
     body { font-family: sans-serif; background: #000; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .grid { display: grid; grid-template-columns: 180px 180px; gap: 10px; padding: 10px; background: #fff; border-radius: 8px; }
-    .qr-box { width: 180px; height: 180px; }
+    .grid { display: grid; grid-template-columns: 200px 200px; gap: 10px; padding: 10px; background: #fff; border-radius: 8px; }
+    canvas { width: 200px; height: 200px; }
     .controls { margin-bottom: 15px; }
-    button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; }
-    .hidden { display: none; }
+    button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
   </style>
 </head>
 <body>
@@ -21,35 +20,24 @@
 </div>
 
 <div class="grid">
-  <canvas id="c0" width="180" height="180"></canvas>
-  <canvas id="c1" width="180" height="180"></canvas>
-  <canvas id="c2" width="180" height="180"></canvas>
-  <canvas id="c3" width="180" height="180"></canvas>
+  <canvas id="c0" width="200" height="200"></canvas>
+  <canvas id="c1" width="200" height="200"></canvas>
+  <canvas id="c2" width="200" height="200"></canvas>
+  <canvas id="c3" width="200" height="200"></canvas>
 </div>
-
-<div id="q0" class="hidden"></div>
-<div id="q1" class="hidden"></div>
-<div id="q2" class="hidden"></div>
-<div id="q3" class="hidden"></div>
 
 <div id="status" style="margin-top: 15px; font-weight: bold; color: #00ff00;">等待啟動...</div>
 
 <script>
-const qrs = [
-  new QRCode(document.getElementById('q0'), { width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }),
-  new QRCode(document.getElementById('q1'), { width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }),
-  new QRCode(document.getElementById('q2'), { width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }),
-  new QRCode(document.getElementById('q3'), { width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L })
-];
-
 const canvases = [
-  document.getElementById('c0').getContext('2d'),
-  document.getElementById('c1').getContext('2d'),
-  document.getElementById('c2').getContext('2d'),
-  document.getElementById('c3').getContext('2d')
+  document.getElementById('c0'),
+  document.getElementById('c1'),
+  document.getElementById('c2'),
+  document.getElementById('c3')
 ];
+const ctxs = canvases.map(c => c.getContext('2d'));
 
-const CHUNK_SIZE = 250; // 單條碼精準 Byte 容納量
+const CHUNK_SIZE = 180; // 適中容量，確保低密度超快辨識
 let chunks = [];
 let frameIndex = 0;
 let isTransmitting = false;
@@ -65,25 +53,55 @@ function startTransmission() {
 
   reader.onload = function(e) {
     const uint8Array = new Uint8Array(e.target.result);
-    // 使用 Latin-1 保留原始 Byte 資料，免除 Base64 膨脹
+    
+    // 使用安全的 Base64 轉換避免字元溢位
     let binary = '';
-    for (let i = 0; i < uint8Array.byteLength; i++) {
+    const len = uint8Array.byteLength;
+    for (let i = 0; i < len; i++) {
       binary += String.fromCharCode(uint8Array[i]);
     }
+    const base64Data = window.btoa(binary);
 
     chunks = [];
-    for (let i = 0; i < binary.length; i += CHUNK_SIZE) {
-      chunks.push(binary.slice(i, i + CHUNK_SIZE));
+    for (let i = 0; i < base64Data.length; i += CHUNK_SIZE) {
+      chunks.push(base64Data.slice(i, i + CHUNK_SIZE));
     }
     
     frameIndex = 0;
     isTransmitting = true;
-    document.getElementById('status').textContent = `總影格切片：${chunks.length}，4 通道全速廣播中...`;
+    document.getElementById('status').textContent = `總切片數：${chunks.length}，4 通道極速噴射中...`;
     
     playFrame();
   };
 
   reader.readAsArrayBuffer(file);
+}
+
+function renderQRCodeToCanvas(ctx, text) {
+  try {
+    // Type 0 自動選擇最小 Version，容錯率 L
+    const qr = qrcode(0, 'L');
+    qr.addData(text);
+    qr.make();
+    
+    const count = qr.getModuleCount();
+    const size = 200;
+    const tile = size / count;
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.fillStyle = "#000000";
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) {
+          ctx.fillRect(c * tile, r * tile, tile + 0.5, tile + 0.5);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("QR 生成錯誤:", err);
+  }
 }
 
 function playFrame() {
@@ -94,17 +112,10 @@ function playFrame() {
     if (idx < chunks.length) {
       const header = String(idx).padStart(5, '0') + '/' + String(chunks.length).padStart(5, '0') + '|';
       const payload = header + chunks[idx];
-
-      qrs[ch].clear();
-      qrs[ch].makeCode(payload);
-
-      const img = document.getElementById(`q${ch}`).querySelector('img');
-      if (img && img.complete) {
-        canvases[ch].drawImage(img, 0, 0, 180, 180);
-      }
+      renderQRCodeToCanvas(ctxs[ch], payload);
     } else {
-      canvases[ch].fillStyle = "#FFF";
-      canvases[ch].fillRect(0,0,180,180);
+      ctxs[ch].fillStyle = "#FFFFFF";
+      ctxs[ch].fillRect(0, 0, 200, 200);
     }
   }
 
@@ -113,7 +124,7 @@ function playFrame() {
 
   setTimeout(() => {
     requestAnimationFrame(playFrame);
-  }, 20); // 50 FPS 極速刷新
+  }, 16); // 接近 60 FPS 極速刷新
 }
 </script>
 </body>
