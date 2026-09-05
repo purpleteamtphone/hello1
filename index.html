@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>RBI Safe Storage Demo (Blob URL)</title>
+  <title>RBI Safe Storage Demo (Network Export)</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -24,114 +24,61 @@
 </head>
 <body>
 
-  <h2>RBI 避檢測：純記憶體傳輸與 Blob URL 存檔範例</h2>
-  <button id="btn-process" onclick="processAndSave()">1. 取得資料並下載存檔</button>
+  <h2>RBI 避檢測：讀取本地 EXE 並投射至 DevTools Network</h2>
+  <button id="btn-process" onclick="processAndExpose()">1. 讀取 7z2602-x64.exe 並準備匯出</button>
   <div id="status">準備就緒</div>
-  <a href="public/zpqa">zpqa</a>
+
   <script>
-    let isSwReady = false;
-    
-    if ('serviceWorker' in navigator) {
-      // 監聽 Controller 切換事件 (SW 成功 claim 時會觸發)
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        isSwReady = true;
-        document.getElementById('status').innerText = 'Service Worker 已成功控制頁面！';
-      });
-    
-      navigator.serviceWorker.register('./sw.js')
-        .then((registration) => {
-          // 若已經被 Controller 控制，直接標記準備就緒
-          if (navigator.serviceWorker.controller) {
-            isSwReady = true;
-            document.getElementById('status').innerText = 'Service Worker 準備就緒！';
-          } else {
-            document.getElementById('status').innerText = 'Service Worker 啟用中，請稍候...';
-          }
-        })
-        .catch((err) => {
-          document.getElementById('status').innerText = 'Service Worker 註冊失敗: ' + err;
-        });
-    } else {
-      document.getElementById('status').innerText = '目前瀏覽器不支援 Service Worker';
-    }
+    // 1. 核心處理流程：Fetch 讀取同目錄下的 7z2602-x64.exe 並轉為 Blob
+    async function processAndExpose() {
+      const statusDiv = document.getElementById('status');
+      statusDiv.innerText = '正在讀取同目錄下的 7z2602-x64.exe...';
 
-    // 2. 模擬生成記憶體資料 (1MB ArrayBuffer)
-    function generateSampleBuffer() {
-      const size = 1024 * 1024; // 1MB
-      const buffer = new ArrayBuffer(size);
-      const view = new Uint8Array(buffer);
-      for (let i = 0; i < size; i++) {
-        view[i] = i % 256;
-      }
-      return buffer;
-    }
-
-    // 3. 核心處理流程
-    async function processAndSave() {
-      if (!isSwReady || !navigator.serviceWorker.controller) {
-        alert('Service Worker 尚未準備就緒，請重新整理頁面再試');
-        return;
-      }
-
-      document.getElementById('status').innerText = '正在將 Buffer 轉移給 Service Worker...';
-
-      const sampleBuffer = generateSampleBuffer();
-      const channel = new MessageChannel();
-
-      // 接收 Service Worker 的確認回應
-      channel.port1.onmessage = async (event) => {
-        if (event.data.status === 'READY') {
-          try {
-            document.getElementById('status').innerText = '透過 fetch 讀取純數據 Response...';
-
-            // 經由一般 HTTP Fetch 取得內容，完全無下載標頭與視窗導向
-            const response = await fetch('./virtual-download');
-            if (!response.ok) throw new Error('Fetch 失敗');
-
-            const dataBuffer = await response.arrayBuffer();
-
-            document.getElementById('status').innerText = '資料已存入記憶體，觸發 Blob URL 下載...';
-
-            // 使用 Blob URL 方式寫入硬碟
-            saveViaBlobUrl(dataBuffer, 'demo_data.bin');
-
-            document.getElementById('status').innerText = `已完成儲存！(大小: ${dataBuffer.byteLength} bytes)`;
-
-          } catch (err) {
-            document.getElementById('status').innerText = '處理過程發生錯誤: ' + err.message;
-            console.error(err);
-          }
+      try {
+        // 從伺服器/同目錄抓取原始 EXE 檔案
+        const response = await fetch('./7z2602-x64.exe');
+        if (!response.ok) {
+          throw new Error(`檔案讀取失敗，HTTP 狀態碼: ${response.status}`);
         }
+
+        const fileBuffer = await response.arrayBuffer();
+        
+        // 建立記憶體 Blob 物件
+        const restoredBlob = new Blob([fileBuffer], { type: 'application/octet-stream' });
+
+        // 📌 關鍵：將 Blob 暴露至全域變數，供 DevTools 控制台隨時存取
+        window.restoredBlob = restoredBlob;
+
+        statusDiv.innerText = `✅ 檔案讀取成功！(大小: ${restoredBlob.size} bytes)，正在投射至 Network 面板...`;
+
+        // 2. 觸發 Network 面板投射機制
+        exposeToNetworkPanel(restoredBlob);
+
+      } catch (err) {
+        statusDiv.innerText = '處理過程發生錯誤: ' + err.message;
+        console.error(err);
+      }
+    }
+
+    // 2. 利用 Image 物件加載 Data URL，強制在 Chrome Network 面板留下標記
+    function exposeToNetworkPanel(blob) {
+      const reader = new FileReader();
+      
+      reader.onload = function () {
+        const dataUrl = reader.result;
+
+        // 建立隱藏 Image 載入 Data URL，這會強制 DevTools Network 面板捕捉該筆 200 OK 請求
+        const img = new Image();
+        img.src = dataUrl;
+
+        const statusDiv = document.getElementById('status');
+        statusDiv.innerText = `✅ 檔案已成功投射！請按 F12 打開 DevTools -> Network 面板，點擊 data:... 請求存檔。`;
+        
+        console.log("%c[RBI Export] ✅ 檔案已成功投射至 Network 面板！", "color: green; font-weight: bold; font-size: 14px;");
+        console.log("全域 Blob 變數：window.restoredBlob", window.restoredBlob);
       };
 
-      // 利用 Transferable Objects 將 Buffer 轉移給 Service Worker
-      navigator.serviceWorker.controller.postMessage({
-        type: 'SET_BUFFER',
-        buffer: sampleBuffer,
-        mimeType: 'application/octet-stream'
-      }, [channel.port2], [sampleBuffer]);
-    }
-
-    // 4. 使用 In-Memory Blob URL 進行存檔
-    function saveViaBlobUrl(buffer, filename = 'demo_data.bin') {
-      // 1. 將 ArrayBuffer 轉為純記憶體 Blob
-      const blob = new Blob([buffer], { type: 'application/octet-stream' });
-      
-      // 2. 建立內部記憶體 URL (格式為 blob:https://...)
-      const blobUrl = URL.createObjectURL(blob);
-      
-      // 3. 建立隱藏 <a> 標籤觸發儲存
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      
-      a.click();
-      
-      // 4. 立即銷毀 <a> 標籤與記憶體 URL，不留痕跡
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      reader.readAsDataURL(blob);
     }
   </script>
 </body>
